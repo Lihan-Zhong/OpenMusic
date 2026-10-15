@@ -26,4 +26,6 @@ Set up per README, put the user's songs in `songs/`, then run
 - Never commit `data/`, `songs/`, `outputs/` (copyright / licence); see `.gitignore`.
 - Run scripts from the project root with the project venv. Tune only on the train split, test once.
 - Don't add Claude as a co-author or contributor in commits or PRs.
+- Code is GPL-3.0; only add GPL-compatible dependencies. README is bilingual: keep README.md (English)
+  and README.zh-CN.md (Chinese) in sync.
 - On the 16 GB Mac, run at most one heavy model job at a time.
