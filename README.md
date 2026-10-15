@@ -115,11 +115,13 @@ Open http://localhost:8765/compare.html in a browser.
 
 ## Licences and caveats
 
-- The code is released under the MIT License (see [LICENSE](LICENSE)): you may use, modify and
-  redistribute it, including commercially, as long as you keep the copyright notice.
+- Copyright (C) 2026 Lihan Zhong. The code is licensed under the GNU Affero General Public License
+  v3.0 (AGPL-3.0, see [LICENSE](LICENSE)). You may use, modify and redistribute it, but any derivative
+  work must also be released as open source under AGPL-3.0. That includes running a modified version
+  as a network service, e.g. a website: its users must be able to get the source code.
 - MUSDB18 is for non-commercial research only, so it is not in the repo. The `*_stats.npz` files and
   the gain table in `experiments/methods/stereo.py` are a small set of parameters derived from its
-  train split; they fall under MUSDB18's terms, not the MIT License.
+  train split; they fall under MUSDB18's terms, not the AGPL.
 - The Demucs authors say its model weights are for research use only (facebookresearch/demucs#327).
   BS-RoFormer-SW is a community re-hosted checkpoint with no stated licence. Fine for personal practice;
   don't use them commercially.

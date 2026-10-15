@@ -109,7 +109,7 @@ curl -L -o data/MUSDB18-7-STEMS.zip https://github.com/sigsep/sigsep-mus-db/rele
 
 ## 许可和注意事项
 
-- 代码采用 MIT 协议（见 [LICENSE](LICENSE)）：任何人都可以使用、修改、再发布，包括商用，只要保留版权声明。
-- MUSDB18 数据只能用于非商业研究，所以不放进仓库。`*_stats.npz` 和 `experiments/methods/stereo.py` 里的增益表，是从它的训练集统计出来的少量参数，适用 MUSDB18 的条款，不属于 MIT 协议范围。
+- Copyright (C) 2026 Lihan Zhong。代码采用 GNU Affero 通用公共许可证 v3.0（AGPL-3.0，见 [LICENSE](LICENSE)）。任何人都可以使用、修改、再发布，但衍生项目也必须以 AGPL-3.0 开源。把修改后的版本做成网站等网络服务提供给别人用，也要向用户公开源代码。
+- MUSDB18 数据只能用于非商业研究，所以不放进仓库。`*_stats.npz` 和 `experiments/methods/stereo.py` 里的增益表，是从它的训练集统计出来的少量参数，适用 MUSDB18 的条款，不属于 AGPL 范围。
 - Demucs 的模型权重，作者说明只供科研用途（facebookresearch/demucs#327）。BS-RoFormer-SW 是社区重新托管的权重，没有写明协议。个人练习可以，不要拿去商用。
 - 不要把别人的歌或分好的音轨提交进仓库。
