@@ -702,5 +702,459 @@
   "weaknesses_zh": "1）它只认\"最突出的那条旋律\"，分不清是人在唱还是乐器在奏：主音吉他、合成器、口琴在独奏或给人声加旋律线时，它会把这件乐器当成人声。歌手停下来的间奏里也是这样，追踪器会\"转身\"去跟最响的乐器线（这首歌 93% 的帧都被判成\"在唱\"）。2）辅音、气声、耳语没有音高，梳子抓不到；靠噪声声源只找回一部分，而且容易误把镲片、吉他失真的\"沙沙声\"也拿进来。3）伴奏刚好和人声同音或成八度时（齐奏、和声），同一个泛音位置上两个声音叠在一起，分不开。4）鼓只用了简单的横竖滤波，失真吉他的噪声和人声辅音都会漏进鼓里（鼓只有 2.4 dB，远低于 Demucs 的 9.6）。5）总分 3.4 dB，离 Demucs 的 9.2 dB 和理想遮罩的 10.0 dB 还差很远。",
   "expected_sound_zh": "人声轨：歌手唱长音的地方比较清楚，但带有\"水下/金属感\"，像隔着梳子听，泛音之间的空隙被挖掉了；字头的辅音偏弱、偏糊；间奏里会冒出吉他主旋律或吉他 riff 的碎片，听起来像\"幽灵吉他\"；混响尾巴也大多被留在伴奏里。鼓轨：军鼓和镲比较明显，底鼓偏弱，并混着失真吉他的嘶嘶声和人声的\"s\"音，像隔壁屋在排练。其他轨：基本就是整首歌把人声调小了一些、鼓调小了一些，吉他、贝斯完整，但还能听到淡淡的人声残影（尤其高音和辅音）和鼓的残留。",
   "best_stem_insight": "This family is a vocals specialist and nothing more: test vocals 4.10 dB vs 0 dB for silence and -4.5 for the mixture, while its drums (2.44) and other (3.65) come only from plain HPSS and the remainder, so a combiner should take drums/other from elsewhere. The vocal gain came from two things. (a) A polyphonic harmonic-sum tracker: pyin is useless on mixtures (-0.17 dB, it locks onto the bass). (b) Swapping the binary comb for a melody-guided source-filter NMF with a noise source for consonants (+0.9 dB over the best comb). Diagnostics on train: with perfect pitch taken from the true vocal stem, a plain comb only reaches about 3.2 dB. Restricting the NMF to frames where the tracker matched the true pitch made it WORSE (2.2-3.2 dB). Running it on every frame (threshold 0) scored about the same as the tuned threshold (4.14 vs 4.12), because the NMF decides how much voice there is. So the limit is not pitch accuracy. It is that a pitch track cannot tell voice from a melodic instrument, and the comb misses about 21% of vocal energy (consonants, breath, reverb). The most useful thing to combine with it is a cue that says 'is this the voice?', such as centre panning or a vocal-activity detector, used as a gate or prior on the voice NMF; a raw centre weighting of the tracker input did not help here. Its harmonic voice mask could also be multiplied with a stereo/centre mask from another family. On the user's loud-guitar song, 93% of frames were judged 'sung', so expect guitar-lead leakage into vocals during instrumental passages."
+ },
+ "freq_bands": {
+  "method": "freq_bands",
+  "title_zh": "频率切分（固定均衡器）",
+  "idea_zh": "这是最朴素的\"按频率判断\"：给每个音轨配一条固定的EQ曲线（均衡器，就是按频率调音量的旋钮）。整首歌从头到尾都用同一条曲线，比如低频大多给贝斯和底鼓，中频大多给人声。最好的曲线是从40首训练歌里统计出来的：每个频率上人声、鼓、其他乐器平均各占多少能量，就按这个比例分。理论上这已经是\"只看频率\"能做到的上限。但频率本身不够用：同一个频率上往往同时有好几种乐器（比如2 kHz既有人声又有吉他，60 Hz既有底鼓又有贝斯），固定的EQ只能按平均比例\"平分\"，没法知道这一刻到底是谁在响。就算为每首歌单独定制最理想的EQ（作弊用标准答案），也只到约4.3到5.7 dB，远不如能看时间变化的方法。",
+  "final_algorithm": "STFT of each channel with n_fft 16384 (0.37 s Hann, 2.7 Hz bins), hop 4096. Each stem = a fixed, time-invariant gain per frequency bin applied to the complex STFT, then inverse STFT; the same curve for L and R. The 3 x 8193 gains are the frequency-only Wiener filter learned from the TRAIN stems by experiments/methods/freq_bands_fit.py: mask_s(f) = sum_c w_c Re(S_c,s X_c*)(f) / sum_c w_c |X_c(f)|^2, where w_c = 1 / (mix energy of clip c) so every clip counts equally. The gains are clipped to [0,1] and renormalised to sum to 1, so the stems add back to the mix. They are stored in experiments/methods/freq_bands_stats.npz. Because the bins are fine, the curve also picked up a comb on the A=440 semitone grid: bins at in-tune note frequencies lean towards 'other'.",
+  "variants": [
+   {
+    "description": "Hand-set hard bands, the user's first idea: drums below 120 Hz and above 5 kHz, vocals 200 Hz-4 kHz, other gets the rest (n_fft 4096)",
+    "train_vocals": 0.2,
+    "train_drums": -1.31,
+    "train_other": 0.32,
+    "train_mean": -0.26,
+    "kept": false
+   },
+   {
+    "description": "Hand-set soft overlapping bands: drum/vocal/other shares hand-drawn at 11 anchor frequencies from 30 Hz to 16 kHz, interpolated in log-frequency",
+    "train_vocals": 3.14,
+    "train_drums": 1.29,
+    "train_other": 3.21,
+    "train_mean": 2.55,
+    "kept": false
+   },
+   {
+    "description": "Hard bands with edges tuned by grid search on train: drums below 60 Hz and above 6 kHz, vocals 400 Hz-4 kHz, other the rest",
+    "train_vocals": 1.46,
+    "train_drums": 0.51,
+    "train_other": 1.86,
+    "train_mean": 1.28,
+    "kept": false
+   },
+   {
+    "description": "Learned smooth EQ: frequency-only Wiener mask fitted on a 1/12-octave triangular band basis, n_fft 4096 (5-fold CV about 2.7)",
+    "train_vocals": 3.3,
+    "train_drums": 1.83,
+    "train_other": 3.73,
+    "train_mean": 2.95,
+    "kept": false
+   },
+   {
+    "description": "Learned per-bin frequency-only Wiener mask, n_fft 4096",
+    "train_vocals": 3.35,
+    "train_drums": 1.84,
+    "train_other": 3.77,
+    "train_mean": 2.99,
+    "kept": false
+   },
+   {
+    "description": "FINAL: learned per-bin frequency-only Wiener mask, n_fft 16384, each clip weighted equally (leave-one-out estimate from STFT statistics: mean 2.81)",
+    "train_vocals": 3.45,
+    "train_drums": 1.96,
+    "train_other": 4.06,
+    "train_mean": 3.16,
+    "kept": true
+   },
+   {
+    "description": "Same per-bin mask at n_fft 16384, pooled weighting (loud clips count more)",
+    "train_vocals": 3.44,
+    "train_drums": 1.92,
+    "train_other": 3.97,
+    "train_mean": 3.11,
+    "kept": false
+   },
+   {
+    "description": "Same per-bin mask at n_fft 32768. Higher in-sample, but the leave-one-out estimate is the same (2.81) and the filter is longer (more pre-echo), so not kept",
+    "train_vocals": 3.48,
+    "train_drums": 2.03,
+    "train_other": 4.1,
+    "train_mean": 3.21,
+    "kept": false
+   },
+   {
+    "description": "Explicit band x A440 cent-offset comb model (1/12-octave bands x 10 cent bins, n_fft 32768). Leave-one-out estimate from STFT statistics, not evaluate.py; in-sample mean 3.14. Same as the per-bin mask",
+    "train_vocals": 3.18,
+    "train_drums": 1.67,
+    "train_other": 3.47,
+    "train_mean": 2.77,
+    "kept": false
+   },
+   {
+    "description": "Song-adaptive EQ, template gains: NNLS fit of each song's long-term spectrum with 3 average stem spectra, used to rescale the learned mask. FAILED (drums collapse). Leave-one-out from STFT statistics, alpha=1",
+    "train_vocals": 2.1,
+    "train_drums": 0,
+    "train_other": 2.47,
+    "train_mean": 1.52,
+    "kept": false
+   },
+   {
+    "description": "Song-adaptive EQ, nearest neighbours: mask learned only from the 20 train songs with the most similar overall spectral shape. No gain over the global mask (global LOO 2.74 on the same basis). Leave-one-out from STFT statistics",
+    "train_vocals": 3.08,
+    "train_drums": 1.81,
+    "train_other": 3.43,
+    "train_mean": 2.77,
+    "kept": false
+   },
+   {
+    "description": "Song-adaptive EQ, peak contrast: extra features from how peaky each song's long-term spectrum is (sustained notes). In-sample rose to 3.16, but it overfit: 5-fold CV mean below, versus 2.79 without these features",
+    "train_vocals": 3.18,
+    "train_drums": 1.42,
+    "train_other": 3.51,
+    "train_mean": 2.7,
+    "kept": false
+   },
+   {
+    "description": "Song-adaptive tuning: the A440 comb shifted by each song's estimated tuning offset (most songs fall within +-10 cents). No gain. Leave-one-out from STFT statistics",
+    "train_vocals": 3.15,
+    "train_drums": 1.71,
+    "train_other": 3.53,
+    "train_mean": 2.8,
+    "kept": false
+   },
+   {
+    "description": "REFERENCE ONLY, cheats: per-song ORACLE per-bin EQ computed from each train clip's own true stems, time-domain SDR. The best any fixed EQ could ever do on these clips. With a smooth 1/6-octave per-song EQ it would be 4.67; with 1/3-octave, 4.33",
+    "train_vocals": 6.02,
+    "train_drums": 4.5,
+    "train_other": 6.69,
+    "train_mean": 5.74,
+    "kept": false
+   }
+  ],
+  "final_train": {
+   "vocals": 3.45,
+   "drums": 1.96,
+   "other": 4.06,
+   "mean": 3.16
+  },
+  "final_test": {
+   "vocals": 3.5,
+   "drums": 2.23,
+   "other": 2.31,
+   "mean": 2.68
+  },
+  "test_run_seconds": 6.1,
+  "uses_training_data": true,
+  "strengths_zh": "非常简单、非常快：50段测试只用了约6秒，就是三条固定的EQ曲线。人声的分数（3.5 dB）和\"立体声定位法\"差不多，用来大致突出人声的中频还算有效。没有\"水下声\"或者忽大忽小的抽吸感，因为音量曲线从头到尾不变。三轨加起来正好还原原曲。另外有个有趣的发现：曲线学到了按A=440标准音高排列的\"梳子\"（像梳齿一样等距的窄频点），刚好落在调准的音符频率上的那些点更多分给\"其他乐器\"。原因是吉他、键盘的音高是固定、调准的，而人声会滑音、颤音，不总停在这些点上。",
+  "weaknesses_zh": "这是所有方法里分得最差的一类，测试均分只有2.68 dB，低于HPSS（4.38）、REPET（3.41）和音高法（3.40），离Demucs的9.23很远。原因是它分不清\"同一个频率上同时响的不同乐器\"：底鼓和贝斯都在60 Hz左右，人声和吉他都在1到3 kHz，镲片和吉他的嘶嘶高频、齿音也挤在一起。固定EQ只能按平均比例各分一点，结果每一轨里都混着别的乐器。鼓最差（2.23），因为鼓声分散在全频段，而且是一下一下的，固定EQ完全抓不住\"敲击的那一瞬间\"。\"其他\"这一轨在测试集上掉得多（训练4.06，测试2.31），说明训练歌和测试歌的乐器音色差别大。我还试了按每首歌自动调整EQ（看整首歌的频谱形状、找相似的歌、估计调音偏差），都没有变好。",
+  "expected_sound_zh": "三轨听起来都像同一首歌被不同的EQ\"滤\"过，而不像真正分开的乐器。人声轨像打电话、收音机里的声音：中频突出，人声听得清楚，但吉他的中频和军鼓的\"啪\"声都还在里面。鼓轨基本是\"低音炮加高频嘶嘶声\"：底鼓和贝斯混在一起轰轰响，再加上镲片、吉他的毛刺高频，中间的人声和吉他很弱但听得到。其他轨保留了大部分低中频的吉他和贝斯，但人声和鼓仍明显漏进来，像离音箱远了一点。对这首吉他很响的独立摇滚，失真吉他的能量铺满整个频段，所以吉他会大量漏进人声轨和鼓轨的高频。好处是没有电子味的怪声，没有忽有忽无的闪烁或者\"水下声\"，只是\"分不干净\"。",
+  "best_stem_insight": "A fixed per-frequency EQ is only moderately useful for vocals: it gets 3.5 dB on test, on par with the stereo method, because vocals dominate roughly 300 Hz-2.5 kHz on average. It is weakest for drums (broadband and transient, so the only usable regions are below ~60 Hz and above ~6 kHz, both shared with bass and guitar). It is also weak for 'other' on test, since the 'other' spectrum varies a lot from song to song. The learned train-set curve is the ceiling of any single time-invariant EQ: about 3.1 in-sample, about 2.8 leave-one-out, 2.68 on test. Even a per-song oracle EQ only reaches about 4.3 (1/3-octave) to 5.7 (per-bin), so the per-song variation can't be predicted from the long-term spectrum (template gains, nearest-neighbour songs and peak-contrast features all failed in CV). For a combiner, this mask is most useful as a frequency PRIOR, i.e. a per-bin multiplicative prior or a fallback weighting for time-frequency methods like HPSS/REPET: it tells you a bin around 40-80 Hz is mostly 'other'/drums and 400 Hz-2 kHz mostly vocals. Its A440 semitone comb, where in-tune bins lean to 'other', is a cheap extra cue for separating vocals from pitched instruments. As a standalone separator it is the weakest family."
+ },
+ "nmf": {
+  "method": "nmf",
+  "title_zh": "音色积木分解（监督式NMF）",
+  "idea_zh": "把一首歌的频谱看成由几十块\"音色积木\"拼起来的：每块积木是一种固定的声音形状，每个时刻只决定每块积木用多少。我们先从训练集里人声、鼓、其他三条分轨各自学出一套积木（每套64块）。分离新歌时积木保持不变，只算出每一刻各块积木的用量，然后把人声积木拼出来的那部分声音划给人声，鼓和其他也一样。为了让积木更好区分，每块积木还同时记录这个声音在立体声里偏中间还是偏两侧、是\"一下一下敲的\"还是\"持续拉长的\"，以及它前后几帧的变化。",
+  "final_algorithm": "STFT 4096/1024; the stereo mix is split into 4 complex views that sum back to the mix: mid and side, each divided into percussive/harmonic parts by median-filter HPSS soft masks (11 frames x 47 bins). Per frame, the feature vector stacks the 4 view magnitudes compressed to 280 bands (linear below 1.5 kHz, 36 bands/oct above) plus coarse 60-band magnitudes of frames t±2 and t±4 (temporal context), 2080 dims in total. KL-NMF with FIXED dictionaries (64 templates per stem, learned by nmf_fit.py from the 40 train stems plus 80 synthetic remixes with ±2 semitone speed change and ±6 dB gains, then 10 rounds of discriminative refinement where activations come from the train mixtures and each stem's templates are pulled toward its true features); only activations are fitted to the song (100 multiplicative updates). Three dictionary sets (seeds 0/1/2) are run and their stem models averaged. Wiener-style soft masks (model_s / sum of models) are computed per view and band, expanded to STFT bins and applied to the complex views. The voice gets nothing below 200 Hz, and that part goes to other. Stems sum exactly to the mix.",
+  "variants": [
+   {
+    "description": "Plain supervised KL-NMF, mono magnitude, full 2049-bin resolution, 32 templates/stem, Wiener mask power 1 (2-fold CV on train: templates fit on 20 clips, scored on the other 20; all variant scores below are this CV unless noted)",
+    "train_vocals": 3.51,
+    "train_drums": 0.88,
+    "train_other": 2.87,
+    "train_mean": 2.42,
+    "kept": false
+   },
+   {
+    "description": "Same, 128 templates per stem",
+    "train_vocals": 3.15,
+    "train_drums": 1.42,
+    "train_other": 3.36,
+    "train_mean": 2.65,
+    "kept": false
+   },
+   {
+    "description": "Same (32 templates), beta-divergence 0.5 instead of KL (3x slower)",
+    "train_vocals": 3.53,
+    "train_drums": 1.41,
+    "train_other": 3.11,
+    "train_mean": 2.68,
+    "kept": false
+   },
+   {
+    "description": "Same, power-2 Wiener masks (sharper masks hurt)",
+    "train_vocals": 2.86,
+    "train_drums": 0.43,
+    "train_other": 2.35,
+    "train_mean": 1.88,
+    "kept": false
+   },
+   {
+    "description": "Band-compressed features (1/36 oct above 1.5 kHz), mono: faster but slightly worse",
+    "train_vocals": 3.36,
+    "train_drums": 0.54,
+    "train_other": 2.5,
+    "train_mean": 2.13,
+    "kept": false
+   },
+   {
+    "description": "Stacked views mid/side x percussive/harmonic (HPSS 17x17), 32 templates: the biggest single gain",
+    "train_vocals": 3.64,
+    "train_drums": 2.06,
+    "train_other": 3.19,
+    "train_mean": 2.97,
+    "kept": false
+   },
+   {
+    "description": "+ discriminative template refinement (activations from train mixtures, 10 rounds)",
+    "train_vocals": 3.8,
+    "train_drums": 2.14,
+    "train_other": 3.5,
+    "train_mean": 3.15,
+    "kept": false
+   },
+   {
+    "description": "+ per-song template adaptation (joint W+H updates on the mixture, 20 iters): hurts",
+    "train_vocals": 3.49,
+    "train_drums": 1.95,
+    "train_other": 3.47,
+    "train_mean": 2.97,
+    "kept": false
+   },
+   {
+    "description": "Unsupervised NMF of the mixture (40 components), each component labelled by projecting it onto the learned stem templates",
+    "train_vocals": 2.45,
+    "train_drums": 1.58,
+    "train_other": 3.03,
+    "train_mean": 2.36,
+    "kept": false
+   },
+   {
+    "description": "Unsupervised NMF + hand-made feature rules (spectral flatness, onset spikiness, harmonic peaks, centroid, stereo width), no training data; best of 4 settings (others 0.00-0.40)",
+    "train_vocals": -0.33,
+    "train_drums": 0.46,
+    "train_other": 2.21,
+    "train_mean": 0.78,
+    "kept": false
+   },
+   {
+    "description": "HPSS kernel 11 frames x 47 bins in the views (vs 17x17)",
+    "train_vocals": 4.02,
+    "train_drums": 2.1,
+    "train_other": 3.8,
+    "train_mean": 3.31,
+    "kept": false
+   },
+   {
+    "description": "DNMF mask-objective refinement (Weninger 2014) instead of reconstruction objective",
+    "train_vocals": 4.11,
+    "train_drums": 2.14,
+    "train_other": 3.64,
+    "train_mean": 3.3,
+    "kept": false
+   },
+   {
+    "description": "3-way HPSS views (percussive / residual / harmonic)",
+    "train_vocals": 4.14,
+    "train_drums": 1.76,
+    "train_other": 3.81,
+    "train_mean": 3.24,
+    "kept": false
+   },
+   {
+    "description": "Stereo 2x2 multichannel Wiener post-filter on the NMF estimates (1 iteration): hurts",
+    "train_vocals": 3.74,
+    "train_drums": 1.74,
+    "train_other": 3.52,
+    "train_mean": 3,
+    "kept": false
+   },
+   {
+    "description": "+ 40 synthetic remixes for training (random stems, +-2 semitones, +-6 dB)",
+    "train_vocals": 4.19,
+    "train_drums": 2.38,
+    "train_other": 3.77,
+    "train_mean": 3.45,
+    "kept": false
+   },
+   {
+    "description": "+ temporal context features (coarse bands of frames t-4,t-2,t+2,t+4), no remixes",
+    "train_vocals": 4.02,
+    "train_drums": 2.55,
+    "train_other": 3.9,
+    "train_mean": 3.49,
+    "kept": false
+   },
+   {
+    "description": "Context + 40 remixes + 64 templates/stem",
+    "train_vocals": 4.29,
+    "train_drums": 2.66,
+    "train_other": 4.16,
+    "train_mean": 3.7,
+    "kept": false
+   },
+   {
+    "description": "Separate templates for bass and other4 (merged into other)",
+    "train_vocals": 4.2,
+    "train_drums": 2.23,
+    "train_other": 4,
+    "train_mean": 3.48,
+    "kept": false
+   },
+   {
+    "description": "Centre/wide/side stereo views (6 views) instead of mid/side",
+    "train_vocals": 4.08,
+    "train_drums": 2.48,
+    "train_other": 4.06,
+    "train_mean": 3.54,
+    "kept": false
+   },
+   {
+    "description": "Best single set + voice high-pass at 200 Hz",
+    "train_vocals": 4.4,
+    "train_drums": 2.66,
+    "train_other": 4.15,
+    "train_mean": 3.74,
+    "kept": false
+   },
+   {
+    "description": "FINAL: ensemble of 3 dictionary sets (seeds 0/1/2), models averaged (2-fold CV on train)",
+    "train_vocals": 4.45,
+    "train_drums": 2.65,
+    "train_other": 4.24,
+    "train_mean": 3.78,
+    "kept": true
+   }
+  ],
+  "final_train": {
+   "vocals": 5.19,
+   "drums": 3.77,
+   "other": 5.45,
+   "mean": 4.8
+  },
+  "final_test": {
+   "vocals": 4.18,
+   "drums": 4.16,
+   "other": 3.88,
+   "mean": 4.07
+  },
+  "test_run_seconds": 67.6,
+  "uses_training_data": true,
+  "strengths_zh": "鼓分得最好：测试集鼓 4.16 dB，比目前所有已完成的经典方法都高（hpss 4.01、repet 2.72、pitch 2.44、stereo 2.17）。原因是它同时用了好几种线索：\"一下一下敲\"还是\"持续拉长\"、在立体声里偏中间还是偏两侧，再加上前后几帧的变化（比如鼓声敲下去之后很快衰减）。速度快，50 段测试 68 秒，60 秒的歌约 10 秒。三条分轨加起来严格等于原混音，不会凭空多出或少掉声音。",
+  "weaknesses_zh": "它是靠训练集\"背\"出来的积木，而训练集只有 40 段、每段 7 秒，所以在没见过的歌上会明显变差：用训练过的歌打分是 4.80，交叉验证（用一半歌学、另一半歌打分）只有 3.78，测试集 4.07。\"其他\"轨最弱，测试 3.88，比 hpss 的 4.63 低，因为人声积木会把吉他、键盘里像人声的部分\"偷\"走。1.5 kHz 以上是按一小段一小段频带整体处理的，不分到每个频点，高音区细节会比较糊。整体平均 4.07，略低于 hpss 的 4.38，离 Demucs 的 9.23 还差很远。",
+  "expected_sound_zh": "人声轨：主唱能听清，但背后会一直带着一层吉他和键盘的\"影子\"，失真吉他很响的段落更明显。在这首歌的 60 秒片段里，人声轨在每个 5 秒段的音量都稳定在混音的约 -9 到 -12 dB，说明没人唱的地方也混进了乐器声。声音有点发闷、像隔了一层水，高音的齿音和气声会模糊，偶尔有\"咕噜咕噜\"的残留杂音（软遮罩，即按比例分配每个频率的声音，常见的副作用）。鼓轨：底鼓和军鼓比较干净有力，镲片也在，但失真吉他的沙沙声和扫弦的\"嚓\"声会漏进来，听起来像鼓上盖了一层噪音。其他轨：吉他、贝斯、键盘基本完整，但会残留一些很轻的人声和鼓声，鼓的起音会被削弱。",
+  "best_stem_insight": "Drums is this family's best stem: test 4.16 dB, the best drums score among the classical methods so far (hpss 4.01). Templates that jointly encode percussive-vs-harmonic share, mid/side position and the ±2/±4-frame context capture what a drum hit looks like and how it decays. 'Other' is the weak stem (3.88 vs hpss 4.63). The 'other' dictionary is a catch-all, and the vocal templates absorb guitar and keys, so a combiner should take drums from nmf and other (and probably vocals, 4.18 vs hpss 4.51) from hpss, or average the soft masks. Generalization is the main limit, not model capacity: in-sample train is 4.80 versus 3.78 under 2-fold CV. The things that improved generalization were synthetic remixes, discriminative refinement on train mixtures and a 3-set dictionary ensemble (+0.13 over single sets). Per-song template adaptation, more templates, a stereo multichannel Wiener post-filter and sharper masks all hurt. Files: experiments/methods/nmf.py, nmf_fit.py and nmf_stats.npz (3 sets x 3 stems x 2080x64 templates). Results are in results/nmf_test.json and results/nmf_train.json, and stems in outputs/nmf/Carsick Cars - 中南海/. The variant log is outputs/nmf/scratch/cv_log.txt."
+ },
+ "combo": {
+  "method": "combo",
+  "title_zh": "多专家融合",
+  "idea_zh": "把前面五种经典方法当成五位\"专家\"同时请来：打击/持续音分离（HPSS）、重复模式检测（REPET）、跟踪人声音高（pitch）、固定频率均衡曲线（freq_bands）、模板分解（NMF）。每位专家对频谱图上的每个小格子（某一时刻、某一频率）都给出它认为\"属于人声/鼓/其他\"的比例。再按频段学一套\"信任权重\"：例如在低频更信 NMF 和 HPSS 来判断底鼓，在中频更信音高跟踪来判断人声。这套权重是用训练集里真实分轨的答案算出来的，相当于让多位专家投票，然后按每人的专长加权，所以错误能相互抵消。",
+  "final_algorithm": "Five classical experts copied verbatim from the family files (hpss, repet, pitch, freq_bands, nmf; outputs verified bit-identical to the originals) run on the mixture, two at a time in threads. Each expert's three stems are re-analysed with an STFT (4096 / hop 1024) into ratio masks R_ms = |S_ms| / sum_s |S_ms|. In each of 12 log-spaced bands (0, 40 Hz ... 16 kHz), a softmax-linear 'product of experts' gives mask_s = softmax_s(sum_{m,s'} A[b,s,m,s'] log(R_ms' + 1e-3) + c[b,s]), using 12 x 3 x 16 numbers fitted by experiments/methods/combo_fit.py. The fit uses 48 random frames from each of the 40 train clips and minimises each clip's normalised spectrogram error |mask X - S|^2 with L-BFGS and an L2 pull (lam 1e-2) toward the plain geometric mean. During the fit the NMF expert uses out-of-fold dictionaries (from the 2-fold CV cache), so the fusion trusts NMF only as much as it deserves on unseen songs. The masks are applied to the complex mixture STFT per channel and sum to 1, so the stems add back to the mix. Songs longer than 30 s are processed in 20 s pieces with 2 s crossfades to keep memory around 1.3 GB.",
+  "variants": [
+   {
+    "description": "Baseline: best single family on train (hpss alone), for reference",
+    "train_vocals": 4.25,
+    "train_drums": 2.79,
+    "train_other": 5.17,
+    "train_mean": 4.07,
+    "kept": false
+   },
+   {
+    "description": "Pick each stem from one family in the time domain, other = remainder (best combo: vocals hpss, drums hpss; vocals from nmf/pitch + drums from nmf were all worse, 3.5-3.98)",
+    "train_vocals": 4.25,
+    "train_drums": 2.79,
+    "train_other": 5.17,
+    "train_mean": 4.07,
+    "kept": false
+   },
+   {
+    "description": "Untrained geometric mean of ratio masks of hpss+nmf+repet+pitch (all 6 families: 4.15; linear mask average of all 6: 4.04; waveform average of 4 families: 4.34)",
+    "train_vocals": 5.01,
+    "train_drums": 2.83,
+    "train_other": 5.1,
+    "train_mean": 4.31,
+    "kept": false
+   },
+   {
+    "description": "Learned per-band softmax fusion, all 6 families incl. stereo, 24 bands, lam 1e-3 (2-fold CV over train songs)",
+    "train_vocals": 5.37,
+    "train_drums": 2.94,
+    "train_other": 5.06,
+    "train_mean": 4.46,
+    "kept": false
+   },
+   {
+    "description": "Same, stronger pull to geometric mean, lam 1e-2 (lam 1e-1: 4.50) (CV)",
+    "train_vocals": 5.54,
+    "train_drums": 2.97,
+    "train_other": 5.19,
+    "train_mean": 4.57,
+    "kept": false
+   },
+   {
+    "description": "Drop the stereo expert: 5 experts, 24 bands, lam 1e-2 (CV)",
+    "train_vocals": 5.55,
+    "train_drums": 3.06,
+    "train_other": 5.24,
+    "train_mean": 4.62,
+    "kept": false
+   },
+   {
+    "description": "5 experts + smoothed (5x5) log-mask features + raw stereo centre/pan cues (CV; smoothing alone 4.60, stereo cues alone 4.62)",
+    "train_vocals": 5.54,
+    "train_drums": 3.02,
+    "train_other": 5.21,
+    "train_mean": 4.59,
+    "kept": false
+   },
+   {
+    "description": "Post-filter on 5-expert fusion: multichannel (spatial) Wiener filter (CV; mask exponent 0.8/1.25/1.5 gave 4.52/4.60/4.55; same mono mask on both channels 4.59)",
+    "train_vocals": 5.51,
+    "train_drums": 2.84,
+    "train_other": 5.27,
+    "train_mean": 4.54,
+    "kept": false
+   },
+   {
+    "description": "Extra low-band kick expert: convolutive NMF with train-learned kick/bass spectro-temporal templates. Failed standalone: low-band drum SDR 1.0-2.2 dB vs hpss 2.95, so not added",
+    "train_vocals": 0,
+    "train_drums": 0,
+    "train_other": 0,
+    "train_mean": 0,
+    "kept": false
+   },
+   {
+    "description": "FINAL: 5 experts (hpss, repet, pitch, freq_bands, nmf), 12 bands, lam 1e-2 (2-fold CV over train songs; 8 bands 4.64, 16 bands 4.63, 36 bands 4.52, lam 3e-3 4.69, lam 3e-2 4.65)",
+    "train_vocals": 5.64,
+    "train_drums": 3.05,
+    "train_other": 5.34,
+    "train_mean": 4.68,
+    "kept": true
+   },
+   {
+    "description": "Final + onset/decay and spectral-peakiness features of the mixture, 7 extra per band (CV)",
+    "train_vocals": 5.63,
+    "train_drums": 3.09,
+    "train_other": 5.35,
+    "train_mean": 4.69,
+    "kept": false
+   },
+   {
+    "description": "Final minus nmf expert (4 experts, 12 bands; CV): same mean, so NMF trades vocals for other",
+    "train_vocals": 5.37,
+    "train_drums": 3.17,
+    "train_other": 5.51,
+    "train_mean": 4.68,
+    "kept": false
+   }
+  ],
+  "final_train": {
+   "vocals": 6.03,
+   "drums": 3.84,
+   "other": 5.93,
+   "mean": 5.27
+  },
+  "final_test": {
+   "vocals": 5.32,
+   "drums": 4.3,
+   "other": 4.79,
+   "mean": 4.8
+  },
+  "test_run_seconds": 152,
+  "uses_training_data": true,
+  "strengths_zh": "这是目前所有经典方法里最好的结果。测试集三轨平均 4.80 dB（分贝越高越干净），比单项最好的 HPSS（4.38）高 0.42，三条轨都超过了各家族的最好成绩。人声提升最大：5.32，原来最好的是 4.51。原因是\"跟踪音高\"和\"找重复\"两种判断方式各自犯的错不一样，加权投票后能互相纠正。鼓 4.30，略高于原来最好的 NMF（4.16）；其他 4.79，原来最好是 4.63。三条轨加起来严格等于原曲，不会凭空多出或丢掉声音。速度可以接受：7 秒片段约 3 秒，60 秒歌曲约 30 秒。",
+  "weaknesses_zh": "离 AI 模型 Demucs（9.23）还差得很远，大约相当于它一半的\"干净程度\"。鼓仍然最弱。底鼓（kick，大鼓）和贝斯都在 250 Hz 以下的低频，听起来都是\"咚\"的低音，这里的混淆占了鼓误差的约七成，所有经典方法都分不太开。融合只是在专家已有的判断之间加权；五位专家都判错的地方（比如失真吉他里像人声的部分），融合也救不回来。权重是在 MUSDB 训练歌曲上学的，风格差别大的歌可能不完全适用。我试过额外的立体声线索、平滑、空间维纳滤波（一种按左右声道相关性再过滤一遍的方法）、专门的底鼓模板，都没有带来提升。",
+  "expected_sound_zh": "人声轨：主唱比单一方法更清楚，背景吉他和键盘的残留更少，但仍能听到一些吉他泛音和镲片的\"嘶嘶\"声。声音略带\"水下感\"或金属感，这是频谱遮罩（按频率格子切分声音）常见的副作用；歌手停顿时，可能会冒出被误判成人声的吉他旋律。鼓轨：军鼓和镲片比较清楚，底鼓偏弱、发虚，常混着一点贝斯的低音，吉他扫弦的起音也会漏进来一些。其他轨：吉他和贝斯基本完整，但能听到人声的淡淡残影和鼓的\"影子\"。这首吉他很响、声场很宽的中国独立摇滚，人声轨大概会有明显的失真吉他渗入。",
+  "best_stem_insight": "Where each stem's signal comes from in the final pipeline (2-fold CV ablations on train, removing one expert from the 5-expert fusion at 24 bands, which scored 4.62). VOCALS come mainly from the pitch expert's melody-guided source-filter mask: removing pitch costs -0.73 dB on vocals and -0.29 on the mean, the biggest single ingredient. Next come NMF (-0.25 vocals), HPSS (-0.10) and freq_bands (-0.08); REPET is redundant for vocals (+0.07 when removed). DRUMS come mainly from HPSS (-0.21 drums when removed), then freq_bands and REPET (-0.07 / -0.05). NMF adds nothing to drums on train (+0.08 when removed). OTHER comes from freq_bands (-0.16), HPSS (-0.14) and REPET (-0.09); NMF hurts 'other' by 0.18, but that is cancelled by its vocals gain, so removing NMF leaves the mean unchanged (4.62 / 4.68 at 12 bands). The stereo family hurts in the fusion (-0.05) because the centre cue is already implicit in NMF's mid/side views, so it was dropped. How the gains build up (train CV mean): best single family 4.07, then untrained geometric mean of 4 experts 4.31 (+0.24), learned per-band fusion with all 6 families 4.46 (+0.15), stronger regularisation 4.57 (+0.11), dropping stereo 4.62 (+0.05), 12 instead of 24 bands 4.68 (+0.06). Fewer parameters kept helping, so the fusion is data-limited with only 40 train clips. On TEST the fusion beat every family on every stem: vocals 5.32 vs best 4.51 (hpss), drums 4.30 vs 4.16 (nmf), other 4.79 vs 4.63 (hpss). The main limitation is the 0-250 Hz kick-vs-bass region: it is about 70% of the remaining drum error (and a large share of the 'other' error). Smoothing, stereo cues, onset/decay shape features, a multichannel Wiener post-filter and a train-template kick NMFD all failed to improve it, so a better low-band kick detector is the most promising next step. Note: evaluate.py's train score (5.27) is in-sample, because the NMF dictionaries and fusion weights were fit on those clips; the honest train estimate is the 2-fold CV 4.68. Files: experiments/methods/combo.py, combo_fit.py, combo_stats.npz; results/combo_test.json; stems in outputs/combo/Carsick Cars - 中南海/; experiment log in outputs/combo/scratch/fuse_log.txt."
  }
 }

@@ -8,11 +8,11 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
 
 ## Current state (Oct 2026)
 - Experiment harness in `experiments/` (see README). Scores are median SDR on 50 MUSDB18 7 s test clips.
-- Classical DSP methods (`experiments/methods/`) top out around 4.4 dB (HPSS); AI is far ahead:
-  Demucs 9.2 dB (3 stems); BS-RoFormer-SW 10.3 dB (4-stem score) and clearly better on vocals/drums.
+- Classical DSP methods (`experiments/methods/`): best single family HPSS 4.4 dB; `combo` (learned per-band
+  fusion of 5 families) 4.8 dB. AI is far ahead: Demucs 9.2 dB (3 stems); BS-RoFormer-SW 10.3 dB
+  (4-stem score), clearly better on vocals/drums. Experiment reports: `results/method_info.json`.
 - MUSDB has no guitar stem, so guitar quality is judged by ear on the user's songs in `songs/`.
-- Not finished: a "combo" DSP method combining all six families was in progress and is not in the repo yet;
-  RoFormer-SW has not yet been run on the user's song (it froze the 16 GB Mac).
+- Not finished: RoFormer-SW has not yet been run on the user's song (it froze the 16 GB Mac).
 
 ## Next step on the desktop (RTX 4070 Ti)
 Set up per README, put the user's songs in `songs/`, then run
