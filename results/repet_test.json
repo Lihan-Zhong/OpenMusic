@@ -1,0 +1,313 @@
+{
+ "method": "repet",
+ "split": "test",
+ "seconds": 56.494841084000655,
+ "median_sdr": {
+  "vocals": 4.258479110106652,
+  "drums": 2.719736904900656,
+  "other": 3.2575275022674277,
+  "mean": 3.4119145057582454
+ },
+ "per_track": [
+  {
+   "track": "AM Contra - Heart Peripheral",
+   "vocals": 5.795079116713779,
+   "drums": 2.3177039636401813,
+   "other": 1.4754861388834417
+  },
+  {
+   "track": "Al James - Schoolboy Facination",
+   "vocals": 5.135582014136887,
+   "drums": 2.259080733628116,
+   "other": 5.227384402494369
+  },
+  {
+   "track": "Angels In Amplifiers - I'm Alright",
+   "vocals": 5.493288575839154,
+   "drums": 2.9330496552095813,
+   "other": 4.55700716342812
+  },
+  {
+   "track": "Arise - Run Run Run",
+   "vocals": 2.408307338090264,
+   "drums": 0.11692149306268815,
+   "other": 5.971907915924753
+  },
+  {
+   "track": "BKS - Bulldozer",
+   "vocals": 3.4853850927869146,
+   "drums": 4.750733927911444,
+   "other": 4.1657386693509855
+  },
+  {
+   "track": "BKS - Too Much",
+   "vocals": 5.062611975457328,
+   "drums": 2.4359914543545687,
+   "other": 3.184597778168878
+  },
+  {
+   "track": "Ben Carrigan - We'll Talk About It All Tonight",
+   "vocals": 2.877899298199355,
+   "drums": 3.413277249396223,
+   "other": 4.049146277455803
+  },
+  {
+   "track": "Bobby Nobody - Stitch Up",
+   "vocals": 4.326883653122453,
+   "drums": 1.9182033679216492,
+   "other": 4.921996053777685
+  },
+  {
+   "track": "Buitraker - Revo X",
+   "vocals": 0.9796360455290442,
+   "drums": 2.5533424863035856,
+   "other": 2.766202342941498
+  },
+  {
+   "track": "Carlos Gonzalez - A Place For Us",
+   "vocals": 3.379413397147484,
+   "drums": 2.89774218322422,
+   "other": 1.009556260437896
+  },
+  {
+   "track": "Cristina Vane - So Easy",
+   "vocals": 7.036932946062224,
+   "drums": 8.171395720445803,
+   "other": 2.762336497629743
+  },
+  {
+   "track": "Detsky Sad - Walkie Talkie",
+   "vocals": 6.433004247196593,
+   "drums": 4.693088661415953,
+   "other": 0.36283595421898296
+  },
+  {
+   "track": "Enda Reilly - Cur An Long Ag Seol",
+   "vocals": 4.432687282565756,
+   "drums": 1.8863195409231082,
+   "other": 1.681172334225062
+  },
+  {
+   "track": "Forkupines - Semantics",
+   "vocals": 5.192441894151774,
+   "drums": 4.660966785593688,
+   "other": 3.653717724994726
+  },
+  {
+   "track": "Georgia Wonder - Siren",
+   "vocals": 1.8679356466380184,
+   "drums": 4.542742719965645,
+   "other": 3.2703167377921187
+  },
+  {
+   "track": "Girls Under Glass - We Feel Alright",
+   "vocals": 3.121763280095707,
+   "drums": 1.1581222571185588,
+   "other": 1.3862173032716305
+  },
+  {
+   "track": "Hollow Ground - Ill Fate",
+   "vocals": 2.942463984796348,
+   "drums": 1.5960668857875395,
+   "other": 5.729468887710844
+  },
+  {
+   "track": "James Elder & Mark M Thompson - The English Actor",
+   "vocals": 4.510228973874727,
+   "drums": 1.0590004454961004,
+   "other": 4.942689634605472
+  },
+  {
+   "track": "Juliet's Rescue - Heartbeats",
+   "vocals": 5.241737691936582,
+   "drums": 8.451994757494312,
+   "other": 4.588114659178596
+  },
+  {
+   "track": "Little Chicago's Finest - My Own",
+   "vocals": 2.125945012475105,
+   "drums": 4.999234185473533,
+   "other": 0.64163570938151
+  },
+  {
+   "track": "Louis Cressy Band - Good Time",
+   "vocals": 2.7177733696471265,
+   "drums": 4.205937442522647,
+   "other": 5.078594030653807
+  },
+  {
+   "track": "Lyndsey Ollard - Catching Up",
+   "vocals": 7.605740053383224,
+   "drums": 3.5431266540590567,
+   "other": 2.9379719914537574
+  },
+  {
+   "track": "M.E.R.C. Music - Knockout",
+   "vocals": 2.9484875952198717,
+   "drums": 2.0218926095307115,
+   "other": 1.2180445937847753
+  },
+  {
+   "track": "Moosmusic - Big Dummy Shake",
+   "vocals": 4.873631366187425,
+   "drums": 1.782467229802337,
+   "other": 0.5573019900875195
+  },
+  {
+   "track": "Motor Tapes - Shore",
+   "vocals": -3.9227566224547616,
+   "drums": 1.3452627131322084,
+   "other": 4.6456945236365135
+  },
+  {
+   "track": "Mu - Too Bright",
+   "vocals": 6.913306125465456,
+   "drums": 9.779399579879444,
+   "other": 4.384362994227532
+  },
+  {
+   "track": "Nerve 9 - Pray For The Rain",
+   "vocals": 3.455385010832464,
+   "drums": 6.034733486694744,
+   "other": 1.4554829299419638
+  },
+  {
+   "track": "PR - Happy Daze",
+   "vocals": -4.790006437356281,
+   "drums": 6.909798190485194,
+   "other": 0.242847125113034
+  },
+  {
+   "track": "PR - Oh No",
+   "vocals": -8.32704979515031,
+   "drums": 4.38914683019552,
+   "other": -0.6374380162199021
+  },
+  {
+   "track": "Punkdisco - Oral Hygiene",
+   "vocals": 7.361366852742917,
+   "drums": 2.993774740292394,
+   "other": 2.5677538233282227
+  },
+  {
+   "track": "Raft Monk - Tiring",
+   "vocals": 3.6147771146923264,
+   "drums": 1.4981242148781269,
+   "other": 2.530332024695351
+  },
+  {
+   "track": "Sambasevam Shanmugam - Kaathaadi",
+   "vocals": 4.957326615272818,
+   "drums": 3.9274768641211444,
+   "other": 4.3394466341225755
+  },
+  {
+   "track": "Secretariat - Borderline",
+   "vocals": 3.589789191425946,
+   "drums": 1.656608548420476,
+   "other": 5.116134942369434
+  },
+  {
+   "track": "Secretariat - Over The Top",
+   "vocals": 3.801381702154813,
+   "drums": 2.0676655655646057,
+   "other": 5.856069172876882
+  },
+  {
+   "track": "Side Effects Project - Sing With Me",
+   "vocals": 6.75263432160574,
+   "drums": 6.994247715115742,
+   "other": 2.68445914828042
+  },
+  {
+   "track": "Signe Jakobsen - What Have You Done To Me",
+   "vocals": 4.853793498752095,
+   "drums": 1.4618370303863428,
+   "other": 5.897436369638569
+  },
+  {
+   "track": "Skelpolu - Resurrection",
+   "vocals": 1.386063382345909,
+   "drums": 2.886131323497726,
+   "other": 3.651895053608409
+  },
+  {
+   "track": "Speak Softly - Broken Man",
+   "vocals": 2.3987063970887763,
+   "drums": 2.1227278921129904,
+   "other": 8.01491744117797
+  },
+  {
+   "track": "Speak Softly - Like Horses",
+   "vocals": 2.9009180713768585,
+   "drums": 3.0150697377203715,
+   "other": 7.095275298540046
+  },
+  {
+   "track": "The Doppler Shift - Atrophy",
+   "vocals": 4.316298054776294,
+   "drums": 1.0550110309962206,
+   "other": 0.6054497759666293
+  },
+  {
+   "track": "The Easton Ellises (Baumi) - SDRNR",
+   "vocals": 4.262684208006521,
+   "drums": 2.496121456264164,
+   "other": 1.3490586172267425
+  },
+  {
+   "track": "The Easton Ellises - Falcon 69",
+   "vocals": 2.4989106275773474,
+   "drums": 3.5598381469221674,
+   "other": 2.217194014773318
+  },
+  {
+   "track": "The Long Wait - Dark Horses",
+   "vocals": 4.775432477909403,
+   "drums": 2.2854165170664817,
+   "other": 5.563977768230518
+  },
+  {
+   "track": "The Mountaineering Club - Mallory",
+   "vocals": 4.657113491764299,
+   "drums": 0.9249506228829276,
+   "other": 3.2447382667427367
+  },
+  {
+   "track": "The Sunshine Garcia Band - For I Am The Moon",
+   "vocals": 5.714257110792077,
+   "drums": 0.3753722035540831,
+   "other": 2.050627885009159
+  },
+  {
+   "track": "Timboz - Pony",
+   "vocals": 2.2224723665887907,
+   "drums": 1.070748691585566,
+   "other": 6.046446693082082
+  },
+  {
+   "track": "Tom McKenzie - Directions",
+   "vocals": 4.254274012206783,
+   "drums": 4.462377710219581,
+   "other": 0.6978027975638768
+  },
+  {
+   "track": "Triviul feat. The Fiend - Widow",
+   "vocals": 5.845373535409006,
+   "drums": 2.3162850976190423,
+   "other": 4.713713511805962
+  },
+  {
+   "track": "We Fell From The Sky - Not You",
+   "vocals": 1.1176057721700492,
+   "drums": 4.671219256793485,
+   "other": 2.477823513253547
+  },
+  {
+   "track": "Zeno - Signs",
+   "vocals": 5.871553634346769,
+   "drums": 3.240876920163549,
+   "other": 4.645975041279012
+  }
+ ]
+}

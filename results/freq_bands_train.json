@@ -1,0 +1,253 @@
+{
+ "method": "freq_bands",
+ "split": "train",
+ "seconds": 6.379479666997213,
+ "median_sdr": {
+  "vocals": 3.4512632597522854,
+  "drums": 1.9622684846583183,
+  "other": 4.056790953633067,
+  "mean": 3.1567742326812236
+ },
+ "per_track": [
+  {
+   "track": "A Classic Education - NightOwl",
+   "vocals": 1.5509137528983006,
+   "drums": -4.70202921728689,
+   "other": 8.00979764793795
+  },
+  {
+   "track": "ANiMAL - Clinic A",
+   "vocals": 2.5852762481494236,
+   "drums": -2.7641930193152273,
+   "other": 5.3377163279605195
+  },
+  {
+   "track": "ANiMAL - Easy Tiger",
+   "vocals": 2.2801725283521117,
+   "drums": 0.23127751239718689,
+   "other": 5.04252835924209
+  },
+  {
+   "track": "ANiMAL - Rockshow",
+   "vocals": 3.4279440919646174,
+   "drums": 2.950899373380049,
+   "other": 3.070232814708639
+  },
+  {
+   "track": "Actions - Devil's Words",
+   "vocals": 5.019176187005164,
+   "drums": 2.3764339204109532,
+   "other": 2.5224436754292427
+  },
+  {
+   "track": "Actions - One Minute Smile",
+   "vocals": 4.696025179615149,
+   "drums": 2.408097741742216,
+   "other": 1.9133384207198776
+  },
+  {
+   "track": "Actions - South Of The Water",
+   "vocals": 5.25867106143692,
+   "drums": 0.5484245113212556,
+   "other": 4.967985710749453
+  },
+  {
+   "track": "Aimee Norwich - Child",
+   "vocals": 2.96538201759686,
+   "drums": 1.641327227931302,
+   "other": 6.589783624475745
+  },
+  {
+   "track": "Alexander Ross - Goodbye Bolero",
+   "vocals": 3.2949312773478185,
+   "drums": 1.6248474322138653,
+   "other": 4.908647184097601
+  },
+  {
+   "track": "Alexander Ross - Velvet Curtain",
+   "vocals": 2.3908746372021454,
+   "drums": 3.3109774964036176,
+   "other": 2.2440443143430784
+  },
+  {
+   "track": "Angela Thomas Wade - Milk Cow Blues",
+   "vocals": 2.15107916033404,
+   "drums": 2.7548357319763324,
+   "other": 3.4737801993563613
+  },
+  {
+   "track": "Atlantis Bound - It Was My Fault For Waiting",
+   "vocals": 4.2831229014984435,
+   "drums": 2.7190053060380937,
+   "other": 1.7797955573565338
+  },
+  {
+   "track": "Auctioneer - Our Future Faces",
+   "vocals": 4.514002439208772,
+   "drums": 0.9837621713704815,
+   "other": 5.886249318103585
+  },
+  {
+   "track": "AvaLuna - Waterduct",
+   "vocals": 2.5187147881291057,
+   "drums": 2.639844737914969,
+   "other": 2.9394735384776736
+  },
+  {
+   "track": "BigTroubles - Phantom",
+   "vocals": 3.2705385420879236,
+   "drums": 0.5215490236354707,
+   "other": 6.027349806850241
+  },
+  {
+   "track": "Bill Chudziak - Children Of No-one",
+   "vocals": 3.4745824275399535,
+   "drums": 3.755306952574682,
+   "other": 3.1297173470762747
+  },
+  {
+   "track": "Black Bloc - If You Want Success",
+   "vocals": 2.247345686077437,
+   "drums": 2.4421225512132816,
+   "other": 2.412208375682672
+  },
+  {
+   "track": "Celestial Shore - Die For Us",
+   "vocals": 3.3718403073713015,
+   "drums": -6.687284611587327,
+   "other": 5.011966705611521
+  },
+  {
+   "track": "Chris Durban - Celebrate",
+   "vocals": 4.06844930342538,
+   "drums": 0.6865817705557564,
+   "other": 5.198595003369306
+  },
+  {
+   "track": "Clara Berry And Wooldog - Air Traffic",
+   "vocals": 3.3047732466634416,
+   "drums": 2.0910712386054344,
+   "other": 4.163769484314544
+  },
+  {
+   "track": "Clara Berry And Wooldog - Stella",
+   "vocals": 6.856448375755486,
+   "drums": -3.6444038641973036,
+   "other": 5.580154515922681
+  },
+  {
+   "track": "Clara Berry And Wooldog - Waltz For My Victims",
+   "vocals": 2.11600620095709,
+   "drums": 0.914253957084455,
+   "other": 5.617293251168193
+  },
+  {
+   "track": "Cnoc An Tursa - Bannockburn",
+   "vocals": 0.5450873598662229,
+   "drums": 2.7507522021559816,
+   "other": 3.0758462385418692
+  },
+  {
+   "track": "Creepoid - OldTree",
+   "vocals": 6.680776461391206,
+   "drums": 2.130648282405533,
+   "other": 3.707644678152003
+  },
+  {
+   "track": "Dark Ride - Burning Bridges",
+   "vocals": 4.624756866674041,
+   "drums": 3.7395942992334024,
+   "other": 2.9641227485390536
+  },
+  {
+   "track": "Dreamers Of The Ghetto - Heavy Love",
+   "vocals": 3.510276419123761,
+   "drums": 2.5025717712628897,
+   "other": 3.6163513359761916
+  },
+  {
+   "track": "Drumtracks - Ghost Bitch",
+   "vocals": 4.871637093620319,
+   "drums": 2.1098249121000765,
+   "other": 4.271436338901301
+  },
+  {
+   "track": "Faces On Film - Waiting For Ga",
+   "vocals": 3.011997045038555,
+   "drums": 0.5213364204251214,
+   "other": 4.493259074110157
+  },
+  {
+   "track": "Fergessen - Back From The Start",
+   "vocals": 3.6502315975182125,
+   "drums": 5.506046981417824,
+   "other": 0.8166406988425778
+  },
+  {
+   "track": "Fergessen - Nos Palpitants",
+   "vocals": 6.634978267395453,
+   "drums": 2.4180642866623296,
+   "other": 1.9197658540175344
+  },
+  {
+   "track": "Fergessen - The Wind",
+   "vocals": 6.818489155261944,
+   "drums": 1.8334657307112021,
+   "other": 3.295490912758668
+  },
+  {
+   "track": "Flags - 54",
+   "vocals": 7.339371997374656,
+   "drums": 3.50555936916094,
+   "other": -1.311473596541339
+  },
+  {
+   "track": "Giselle - Moss",
+   "vocals": 5.33385845013438,
+   "drums": 2.1987985113525594,
+   "other": 2.627922775188893
+  },
+  {
+   "track": "Grants - PunchDrunk",
+   "vocals": 7.518143774540613,
+   "drums": 0.8450924510717582,
+   "other": 6.630075673368171
+  },
+  {
+   "track": "Helado Negro - Mitad Del Mundo",
+   "vocals": 4.522597629454085,
+   "drums": -2.636611793547272,
+   "other": 3.94981242295159
+  },
+  {
+   "track": "Hezekiah Jones - Borrowed Heart",
+   "vocals": 0.2772818429570969,
+   "drums": 1.1718387734161673,
+   "other": 4.974459441318489
+  },
+  {
+   "track": "Hollow Ground - Left Blind",
+   "vocals": 3.335912951139419,
+   "drums": 0.9729135346598825,
+   "other": 4.548352581275913
+  },
+  {
+   "track": "Hop Along - Sister Cities",
+   "vocals": 3.0494227271968195,
+   "drums": -0.13958486390622293,
+   "other": 6.956265176896242
+  },
+  {
+   "track": "Invisible Familiars - Disturbing Wildlife",
+   "vocals": 5.076983962242341,
+   "drums": -0.5775571789823505,
+   "other": 6.377975229696132
+  },
+  {
+   "track": "James May - All Souls Moon",
+   "vocals": 2.5218388518927197,
+   "drums": 2.504382584563615,
+   "other": 1.293646225057972
+  }
+ ]
+}

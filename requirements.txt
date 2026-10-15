@@ -1,0 +1,11 @@
+# Tested with Python 3.12 on macOS (Apple Silicon). Versions are the ones in use, not hard requirements.
+# On an NVIDIA machine install a CUDA build of torch FIRST (see README), then: pip install -r requirements.txt
+numpy==2.5.4
+scipy==1.18.1
+librosa==1.0.0
+soundfile==0.14.0
+matplotlib==3.11.2
+av==19.0.1
+scikit-learn==1.9.1
+demucs==4.1.0
+bs-roformer-infer==0.1.5
