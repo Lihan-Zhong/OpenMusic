@@ -326,7 +326,9 @@ def check_song():
     # the audio track: the test's songs/<song>.wav as it is, a sync point at each bar start (0.5 s per beat)
     original = (TEST_ROOT / "songs" / f"{SONG}.wav").read_bytes()
     with zipfile.ZipFile(path) as z:
-        expect(z.read(gp7.ASSET) == original, "the audio track should be the original file, byte for byte")
+        name = gp7.audio_entry(z)
+        expect(name and name.endswith(".wav") and z.read(name) == original,
+               f"the audio track should be the original file, byte for byte, with its extension: {name}")
     starts = [0] + BAR_STARTS
     expect([(b, round(ms, 3)) for b, _, _, ms in song["sync"]] == [(i, 500.0 * s) for i, s in enumerate(starts)],
            f"sync points {song['sync'][:4]}..., expected one per bar start")
@@ -341,17 +343,21 @@ def check_audio_modes(song_dir, path):
     none leaves the audio track out."""
     export_gp.export_song(song_dir, force=True, audio_mode="vocals")
     with zipfile.ZipFile(path) as z:
-        expect(z.read(gp7.ASSET) == (song_dir / "vocals.wav").read_bytes(), "--audio vocals: the vocals stem as it is")
+        expect(z.read(gp7.audio_entry(z)) == (song_dir / "vocals.wav").read_bytes(), "--audio vocals: the vocals stem as it is")
     export_gp.SONGS = TEST_ROOT / "no songs here"
     export_gp.export_song(song_dir, force=True)
     with zipfile.ZipFile(path) as z:
-        mix = z.read(gp7.ASSET)
+        expect(gp7.audio_entry(z).endswith(".mp3"), f"the stems mix should be stored as .mp3: {gp7.audio_entry(z)}")
+        mix = z.read(gp7.audio_entry(z))
     audio, sr = sf.read(io.BytesIO(mix))
     expect(mix[:3] == b"ID3" or mix[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"), "the stems mix should be an MP3")
     expect(abs(len(audio) / sr - 2.0) < 0.1, f"the stems mix should be as long as the stems: {len(audio) / sr:.2f} s")
     export_gp.export_song(song_dir, force=True, audio_mode="none")
     song = gp7.dump(path.read_bytes())
     expect(not song["backing_track"] and not song["sync"] and song["audio_bytes"] == 0, "--audio none: no audio track")
+    with zipfile.ZipFile(path) as z:
+        expect(not any(n.startswith("Content/Assets") for n in z.namelist()) and "meta.json" not in z.namelist(),
+               f"--audio none: no audio file and no meta.json: {z.namelist()}")
     export_gp.SONGS = TEST_ROOT / "songs"
     export_gp.export_song(song_dir, force=True)   # leave the default file for opening by hand
 
@@ -363,6 +369,8 @@ def check_gpif(path, song):
     with zipfile.ZipFile(path) as z:
         expect(z.read("VERSION") == b"7.0", f"{name}: .gp VERSION {z.read('VERSION')!r}")
         root = ET.fromstring(z.read("Content/score.gpif"))
+        entries, audio = z.namelist(), gp7.audio_entry(z)
+        meta = json.loads(z.read("meta.json")) if "meta.json" in entries else {}
     expect(root.findtext("Score/Title") == song["title"], f"{name}: gpif title {root.findtext('Score/Title')!r}")
     expect(len(root.findall("MasterBars/MasterBar")) == len(song["bars"]), f"{name}: gpif bars")
     expect([t.findtext("Name") for t in root.findall("Tracks/Track")] == [t["name"] for t in song["tracks"]],
@@ -376,10 +384,23 @@ def check_gpif(path, song):
     expect({n for n, state in states.items() if state == "Mute"} == {t["name"] for t in song["tracks"] if t["mute"]},
            f"{name}: gpif playback states {states}")
     if song["backing_track"]:
+        # laid out as in a .gp Guitar Pro 8 saved itself (alphaTab's test file guitarpro8/canon-audio-track.gp)
         backing = root.find("BackingTrack")
         expect(backing is not None and backing.findtext("Enabled") == "true" and backing.findtext("Source") == "Local"
                and backing.findtext("FramePadding") == "0", f"{name}: gpif audio track")
-        expect(root.findtext("Assets/Asset/EmbeddedFilePath") == gp7.ASSET, f"{name}: gpif asset path")
+        order = ["IconId", "Color", "Name", "ShortName", "PlaybackState", "ChannelStrip", "Enabled", "Source", "AssetId",
+                 "YouTubeVideoUrl", "Filter", "FramesPerPixel", "FramePadding", "Semitones", "Cents"]
+        expect([c.tag for c in backing] == order and [c.tag for c in backing.find("ChannelStrip")] == ["Parameters"],
+               f"{name}: audio track elements {[c.tag for c in backing]}")
+        asset = root.find("Assets/Asset")
+        expect(asset is not None and asset.get("id") == backing.findtext("AssetId")
+               and asset.findtext("EmbeddedFilePath") == audio and audio.startswith(gp7.ASSETS)
+               and Path(audio).stem == asset.findtext("OriginalFileSha1")
+               and Path(audio).suffix == Path(asset.findtext("OriginalFilePath")).suffix.lower() != "",
+               f"{name}: gpif asset {ET.tostring(asset, encoding='unicode')[:200] if asset is not None else None}")
+        expect([c.tag for c in root][-1] == "Assets" and root.find("AudioTracks") is None,
+               f"{name}: Assets should come last and there should be no AudioTracks")
+        expect(gp7.ASSETS in entries and meta.get("hasAudio") is True, f"{name}: Content/Assets/ entry and meta.json")
         frames = [(int(a.findtext("Value/BarIndex")), int(a.findtext("Value/FrameOffset")))
                   for a in root.findall("MasterTrack/Automations/Automation") if a.findtext("Type") == "SyncPoint"]
         want = [(bar, round(ms / 1000 * 44100)) for bar, _, _, ms in song["sync"]]

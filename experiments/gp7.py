@@ -6,9 +6,14 @@ text of the older .gp5 format in a single-byte code page, also on macOS). No mai
 Python (mini-racer, ISC). export_gp.py lays the score out with PyGuitarPro and hands it over as Guitar Pro 5 bytes
 in memory, with UTF-8 text; alphaTab's Guitar Pro 5 importer reads them and its Guitar Pro 7 exporter writes the
 .gp. No .gp5 file is ever written. Chord symbols are names only (no empty diagrams), and tempo changes are steps.
-An audio file can go in as Guitar Pro 8's audio track (alphaTab's backing track: Content/Assets/backing-track in
-the zip), placed by sync points, i.e. where in the audio given bars start. Its bytes are put into the zip here,
-as they are, rather than passed through V8.
+An audio file can go in as Guitar Pro 8's audio track (alphaTab's backing track), placed by sync points, i.e.
+where in the audio given bars start. Its bytes are put into the zip here, as they are, rather than passed
+through V8, and the parts alphaTab writes differently from Guitar Pro 8 are laid out as in a .gp that Guitar
+Pro 8 saved itself (alphaTab's test file guitarpro8/canon-audio-track.gp): the file is stored as
+Content/Assets/<id>.<its extension> (alphaTab: Content/Assets/backing-track, no extension, which Guitar Pro 8
+plays as silence), the asset lists its original path and id, the audio track's YouTubeVideoUrl / Filter /
+FramesPerPixel sit next to its ChannelStrip rather than inside it, Assets comes last, there is no empty
+AudioTracks, and meta.json says hasAudio (gp8_audio).
 One fix-up after alphaTab: on a drum track it writes each note's General MIDI key where Guitar Pro expects the
 index of the kit piece in the track's drum kit, so the notes are pointed at the piece whose InputMidiNumbers
 hold that key (fix_drums).
@@ -16,9 +21,11 @@ hold that key (fix_drums).
     gp_bytes = to_gp(gp5_bytes, audio=mp3_bytes, sync=[(0, 0.0), (1, 1000.0), ...])   # (bar index, ms)
     dump(gp_bytes)      # what alphaTab reads back: title, bars, audio, and every beat and note of every track
 """
+import hashlib
 import io
 import json
 import re
+import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -53,7 +60,10 @@ globalThis.TextDecoder = class {
       if (c < 0x80) s += String.fromCharCode(c);
       else if (c < 0xe0) s += String.fromCharCode((c & 31) << 6 | b[i++] & 63);
       else if (c < 0xf0) s += String.fromCharCode((c & 15) << 12 | (b[i++] & 63) << 6 | b[i++] & 63);
-      else s += String.fromCodePoint((c & 7) << 18 | (b[i++] & 63) << 12 | (b[i++] & 63) << 6 | b[i++] & 63);
+      else {
+        const cp = (c & 7) << 18 | (b[i++] & 63) << 12 | (b[i++] & 63) << 6 | b[i++] & 63;
+        s += cp <= 0x10ffff ? String.fromCodePoint(cp) : '\ufffd';   // malformed bytes, as real decoders do
+      }
     }
     return s;
   }
@@ -149,18 +159,59 @@ def engine():
     return _ctx
 
 
-ASSET = "Content/Assets/backing-track"   # where alphaTab and Guitar Pro 8 keep the audio track's file
+ALPHATAB_ASSET = "Content/Assets/backing-track"   # where alphaTab puts the audio track's file
+ASSETS = "Content/Assets/"                        # where Guitar Pro 8 does: Content/Assets/<id>.<extension>
 
 
-def to_gp(gp5, audio=None, sync=()):
+def to_gp(gp5, audio=None, sync=(), audio_name="audio.mp3"):
     """Guitar Pro 5 bytes (text in UTF-8) -> .gp bytes; with audio (a file's bytes, any format Guitar Pro 8
-    reads), that file as the audio track, placed by sync = [(bar index, ms into the audio where it starts)]."""
+    reads; audio_name is its file name, whose extension tells Guitar Pro the format), that file as the audio
+    track, placed by sync = [(bar index, ms into the audio where it starts)]."""
     data = bytes.fromhex(engine().call("openmusic.toGp", gp5.hex(), bool(audio), [list(p) for p in sync]))
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        entries = [(info, z.read(info)) for info in z.infolist()]
-    if audio:
-        entries = [(info, audio if info.filename == ASSET else content) for info, content in entries]
-    return rezip(entries, fix_drums)
+        entries = [(info, z.read(info)) for info in z.infolist() if info.filename != ALPHATAB_ASSET]
+    if not audio:
+        return rezip(entries, fix_drums)
+    asset_id = str(uuid.UUID(bytes=hashlib.sha1(audio).digest()[:16], version=5))  # as Guitar Pro: from the file
+    asset = f"{ASSETS}{asset_id}{Path(audio_name).suffix.lower()}"
+    file_info = zipfile.ZipInfo(asset)
+    file_info.compress_type = zipfile.ZIP_DEFLATED   # as Guitar Pro 8 stores it; folder and meta.json stored
+    entries += [(zipfile.ZipInfo(ASSETS), b""), (file_info, audio),
+                (zipfile.ZipInfo("meta.json"), b'{\n    "hasAudio": true,\n    "version": "1.0.0"\n}\n')]
+    return rezip(entries, lambda gpif: gp8_audio(fix_drums(gpif), asset, asset_id, audio_name))
+
+
+def audio_entry(z):
+    """The name of the audio track's file in an open .gp zip, or None."""
+    return next((n for n in z.namelist() if n.startswith(ASSETS) and n != ASSETS), None)
+
+
+def cdata(text):
+    return "<![CDATA[" + text.replace("]]>", "]]]]><![CDATA[>") + "]]>"
+
+
+def gp8_audio(gpif, asset, asset_id, audio_name):
+    """score.gpif with the audio track's parts laid out as Guitar Pro 8 saves them (see the module docstring)."""
+    def element(name, text):
+        m = re.search(rf"<{name}>(.*?)</{name}>|<{name}\s*/>", text, re.S)
+        return m.group(0) if m else f"<{name}/>"
+
+    track = re.search(r"<BackingTrack>(.*?)</BackingTrack>", gpif, re.S).group(1)
+    strip = re.search(r"<ChannelStrip>(.*?)</ChannelStrip>", track, re.S).group(1)
+    backing = "<BackingTrack>" + "".join(element(n, track) for n in (
+        "IconId", "Color", "Name", "ShortName", "PlaybackState")) + \
+        f"<ChannelStrip>{element('Parameters', strip)}</ChannelStrip>" + \
+        "".join(element(n, track) for n in ("Enabled", "Source", "AssetId")) + \
+        "".join(element(n, strip) for n in ("YouTubeVideoUrl", "Filter", "FramesPerPixel")) + \
+        "".join(element(n, track) for n in ("FramePadding", "Semitones", "Cents")) + "</BackingTrack>"
+    gpif = gpif.replace(f"<BackingTrack>{track}</BackingTrack>", backing)
+    asset_id_attr = re.search(r'<Asset id="([^"]*)"', gpif).group(1)
+    gpif = re.sub(r"<Assets>.*?</Assets>", "", gpif, flags=re.S)
+    gpif = re.sub(r"<AudioTracks\s*/>|<AudioTracks>\s*</AudioTracks>", "", gpif)
+    assets = (f'<Assets><Asset id="{asset_id_attr}"><OriginalFilePath>{cdata(audio_name)}</OriginalFilePath>'
+              f"<OriginalFileSha1>{asset_id}</OriginalFileSha1><EmbeddedFilePath>{cdata(asset)}</EmbeddedFilePath>"
+              "</Asset></Assets>")
+    return gpif.replace("</GPIF>", assets + "</GPIF>")
 
 
 def rezip(entries, edit_gpif=None):
@@ -217,11 +268,12 @@ def dump(data):
     (drums: General MIDI key), string (1 = lowest), fret, tie). The audio itself stays out of V8."""
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         entries = [(info, z.read(info)) for info in z.infolist()]
-    audio = next((content for info, content in entries if info.filename == ASSET), b"")
+        name = audio_entry(z)
+    audio = next((content for info, content in entries if info.filename == name), b"")
     if audio:
-        data = rezip([(info, b"\0" if info.filename == ASSET else content) for info, content in entries])
+        data = rezip([(info, b"\0" if info.filename == name else content) for info, content in entries])
     song = json.loads(engine().call("openmusic.dump", data.hex()))
-    song["audio_bytes"] = len(audio)
+    song["audio_bytes"], song["audio_file"] = len(audio), name
     return song
 
 

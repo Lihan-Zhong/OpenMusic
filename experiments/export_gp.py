@@ -677,24 +677,24 @@ def stems_mix(paths):
 
 
 def backing_audio(song_dir, mode):
-    """(bytes or None, what it is, the files it comes from) for the audio track. original: songs/<song>.<ext>
-    as it is when Guitar Pro 8 reads its format, else the stems mixed into an MP3; vocals: the vocals stem as
-    it is; none: no audio track."""
+    """(bytes or None, file name, what it is) for the audio track. original: songs/<song>.<ext> as it is when
+    Guitar Pro 8 reads its format, else the stems mixed into an MP3; vocals: the vocals stem as it is; none: no
+    audio track. The file name's extension tells Guitar Pro the format."""
     if mode == "none":
-        return None, "no audio track", []
+        return None, None, "no audio track"
     if mode == "vocals":
         path = stem_paths(song_dir, ("vocals",)).get("vocals")
         if path:
-            return path.read_bytes(), f"vocals stem {path.name}", [path]
+            return path.read_bytes(), f"{song_dir.name} - {path.name}", f"vocals stem {path.name}"
         print(f"  no vocals stem in {song_dir}: no audio track")
-        return None, "no audio track (no vocals stem)", []
+        return None, None, "no audio track (no vocals stem)"
     path = original_path(song_dir)
     if path and path.suffix.lower() in GP8_AUDIO:
-        return path.read_bytes(), f"original songs/{path.name}", [path]
+        return path.read_bytes(), path.name, f"original songs/{path.name}"
     stems = stem_paths(song_dir)
     if stems:
-        return stems_mix(list(stems.values())), f"the {len(stems)} stems mixed into an MP3", list(stems.values())
-    return None, "no audio track (no original, no stems)", []
+        return stems_mix(list(stems.values())), f"{song_dir.name} (stems).mp3", f"the {len(stems)} stems mixed into an MP3"
+    return None, None, "no audio track (no original, no stems)"
 
 
 def megabytes(data):
@@ -717,10 +717,10 @@ def export_song(song_dir, force=False, audio_mode="original"):
         print(f"{song_dir.name}: nothing to write ({report['tracks']})")
         out.unlink(missing_ok=True)
         return False
-    audio, audio_note, _ = backing_audio(song_dir, audio_mode)
+    audio, audio_name, audio_note = backing_audio(song_dir, audio_mode)
     gp5 = io.BytesIO()
     gp.write(song, gp5, version=(5, 1, 0), encoding=GP5_TEXT)
-    data = gp7.to_gp(gp5.getvalue(), audio, report["sync"] if audio else ())
+    data = gp7.to_gp(gp5.getvalue(), audio, report["sync"] if audio else (), audio_name)
     problems = check(gp7.dump(data), report, audio)
     if problems:
         raise SystemExit(f"{song_dir.name}: the .gp does not read back right: {'; '.join(problems)}")
