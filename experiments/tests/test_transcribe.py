@@ -11,8 +11,14 @@ overdriven power chords; piano-like triads with a top line; sparse notes over 5 
 note in the last second); a melody that drops to bleed level (gate); a near-silent stem.
 Scores are mir_eval note F-measures: onset within 50 ms and pitch within 50 cents ("F onset"), the same with
 the offset within 20 % of the note length or 50 ms ("F on+off"), and onset-only with octave errors forgiven
-("F chroma"). The tempo-map checks read the MIDI back with mido and pretty_midi and need no audio.
+("F chroma"). The tempo-map checks read the MIDI back with mido and pretty_midi and need no audio; one of them
+runs made-up beat-tracker slips through analyze.py's clean-up first, as on a real song.
 Exits with status 1 if a score falls below its floor in FLOORS.
+
+    python experiments/tests/test_transcribe.py --songs outputs/mp3   # only check transcribed songs' MIDI files
+
+--songs checks every <song>/transcription/*.mid under a stems folder against the song's analysis.json: one MIDI
+beat per analysis beat, and MIDI bar lines exactly on its downbeats (so bar N is the same in the player).
 """
 import argparse
 import json
@@ -26,7 +32,10 @@ import pretty_midi
 from mir_eval.transcription import match_notes, precision_recall_f1_overlap
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import analyze  # noqa: E402
 import transcribe  # noqa: E402
+from test_analyze import tracker_slips  # noqa: E402
 from common import OUTPUTS, save  # noqa: E402
 
 TEST_ROOT = OUTPUTS / "_transcribe_test"
@@ -331,14 +340,14 @@ def check_transcription(cases):
 
 # ---------- tempo map ----------
 
-def midi_bar_starts(mid):
-    """Ticks where bars start, from the time signatures in the MIDI file, up to the last event."""
+def midi_bar_starts(mid, end=None):
+    """Ticks where bars start, from the time signatures in the MIDI file, up to the last event (or tick end)."""
     sigs, now = [], 0
     for msg in mid.tracks[0]:
         now += msg.time
         if msg.type == "time_signature":
             sigs.append((now, msg.numerator * mid.ticks_per_beat * 4 // msg.denominator))
-    end = max(sum(m.time for m in track) for track in mid.tracks)
+    end = max(sum(m.time for m in track) for track in mid.tracks) if end is None else end
     starts = []
     for i, (tick, length) in enumerate(sigs):
         stop = sigs[i + 1][0] if i + 1 < len(sigs) else end + 1
@@ -359,19 +368,65 @@ def tempo_grids():
     down = list(range(0, 200, 4))
     grids["steady_120"] = ({"tempo": {"beats": beats.tolist(), "downbeats": beats[down].tolist(),
                                       "beats_per_bar": 4, "bpm": 120.0}}, beats, down, 2)
-    # what the beat tracker does on a noisy rock song: extra beats, a stretch counted in half time, one counted
-    # in double time, a break with no beats, isolated downbeats on the wrong beat, some downbeats missing
-    beats = 0.2 + 60 / 140 * np.arange(300) + RNG.normal(0, 0.005, 300)
-    detected = np.concatenate([beats[:100], beats[100:140:2], beats[140:200], beats[212:]])
-    double_time = (beats[160:176] + beats[161:177]) / 2 + RNG.normal(0, 0.005, 16)
-    detected = np.sort(np.concatenate([detected, beats[[30, 77, 250]] + 0.13, double_time]))
-    down = list(range(2, 300, 4))
-    wrong = [beats[i + 1] for i in (42, 150, 230)] + [beats[i + 2] for i in (90, 262)]
-    said_down = sorted([beats[i] for i in down if i not in (18, 58, 270) and not 200 <= i < 212] + wrong)
-    grids["tracker_slips"] = ({"tempo": {"beats": detected.tolist(), "downbeats": said_down, "beats_per_bar": 4,
-                                         "bpm": 140.0}}, beats, down, 2)
+    # what the beat tracker does on a noisy rock song (test_analyze.tracker_slips: extra beats, near-duplicates,
+    # stretches counted in half, double and quadruple time, a break, stray and missing downbeats), cleaned up by
+    # analyze.py as it does for a real song
+    detected, said_down, confidence, beats, down = tracker_slips()
+    found, bars, _ = analyze.regular_grid(detected, said_down, confidence)
+    grids["tracker_slips"] = ({"tempo": {"beats": found.tolist(), "downbeats": bars.tolist(),
+                                         "beats_per_bar": analyze.beats_per_bar(found, bars), "bpm": 140.0}},
+                              beats, list(down), 2)
     grids["no_analysis"] = (None, np.array([]), [], 1)
     return grids
+
+
+def grid_problems(mid_path, analysis):
+    """Compare a MIDI file with the analysis.json it was written from: beat k of analysis.json must be MIDI beat
+    lead + k (within TEMPO_TOLERANCE_S), and from the first downbeat to the last beat the MIDI bar lines must be
+    exactly the analysis downbeats; before the first downbeat, one short bar (the player's bar 0) at most.
+    Returns (problems, one-line summary)."""
+    mid, pm = mido.MidiFile(str(mid_path)), pretty_midi.PrettyMIDI(str(mid_path))
+    tpb = mid.ticks_per_beat
+    beats, downbeats = np.array(analysis["tempo"]["beats"]), np.array(analysis["tempo"]["downbeats"])
+    midi_beat = np.round([pm.time_to_tick(t) / tpb for t in beats]).astype(int)
+    off_ms = np.abs([pm.tick_to_time(int(k * tpb)) - t for k, t in zip(midi_beat, beats)]) * 1000
+    problems = []
+    if np.any(np.diff(midi_beat) != 1):
+        problems.append(f"{int(np.sum(np.diff(midi_beat) != 1))} analysis beats not one MIDI beat apart")
+    if off_ms.max() > transcribe.TEMPO_TOLERANCE_S * 1000 + 2:
+        problems.append(f"a beat {off_ms.max():.0f} ms off its MIDI beat")
+    summary = (f"{len(beats)} analysis beats -> MIDI beats {midi_beat[0]}..{midi_beat[-1]} "
+               f"({midi_beat[-1] - midi_beat[0] + 1}), {off_ms.max():.1f} ms off at most")
+    if len(downbeats):
+        down_ticks = {int(midi_beat[np.argmin(np.abs(beats - d))]) * tpb for d in downbeats}
+        first, last = min(down_ticks), int(midi_beat[-1]) * tpb
+        bars = midi_bar_starts(mid, end=last)
+        inside = {b for b in bars if first <= b <= last}
+        before = sorted(b for b in bars if b < first)
+        if inside != down_ticks:
+            problems.append(f"{len(inside ^ down_ticks)} bar lines differ from the analysis downbeats")
+        if len(before) > 1:
+            problems.append(f"{len(before)} MIDI bars before the first downbeat (the player has one)")
+        summary += (f"; {len(downbeats)} downbeats -> {len(inside)} MIDI bar lines, {len(before)} bar before the "
+                    f"first ({(first - before[0]) // tpb if before else 0} beats)")
+    return problems, summary
+
+
+def check_songs(stems_root):
+    """grid_problems for every transcription/*.mid of the songs under stems_root."""
+    print(f"\nMIDI against analysis.json, songs under {stems_root}:")
+    failures = []
+    for song in sorted(p for p in Path(stems_root).iterdir() if (p / "analysis.json").is_file()):
+        analysis = json.loads((song / "analysis.json").read_text(encoding="utf-8"))
+        mids = sorted((song / "transcription").glob("*.mid"))
+        for mid_path in mids:
+            problems, summary = grid_problems(mid_path, analysis)
+            if mid_path == mids[0] or problems:
+                print(f"  {song.name} {mid_path.stem}: {summary}{'; ' + '; '.join(problems) if problems else ''}")
+            if problems:
+                failures.append(f"{song.name} {mid_path.stem}")
+        print(f"  {song.name}: {len(mids)} MIDI files checked")
+    return failures
 
 
 def check_tempo_map():
@@ -409,6 +464,9 @@ def check_tempo_map():
                      f"MIDI beat apart: {steps_ok}; downbeats on a bar line: {on_bar:.0%}; {n_tempi} tempo "
                      f"events; time signatures {sigs[:5]}{' ...' if len(sigs) > 5 else ''}")
             ok &= off_ms.max() <= transcribe.TEMPO_TOLERANCE_S * 1000 + 2 and steps_ok and on_bar == 1.0
+            problems, summary = grid_problems(path, analysis)
+            line += f"\n  {'':20} against analysis.json: {summary}{'; ' + '; '.join(problems) if problems else ''}"
+            ok &= not problems
         print(line)
         if not ok:
             failures.append(f"tempo_map {name}")
@@ -416,7 +474,13 @@ def check_tempo_map():
 
 
 def main():
-    argparse.ArgumentParser(description=__doc__.split("\n")[0]).parse_args()
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--songs", type=Path, help="only check the MIDI files of the songs under this stems folder")
+    args = parser.parse_args()
+    if args.songs:
+        failures = check_songs(args.songs)
+        print("\nall checks passed" if not failures else f"\nFAILED: {', '.join(failures)}")
+        sys.exit(1 if failures else 0)
     cases = make_cases()
     write_cases(cases)  # a few seconds; always fresh, so the audio matches the reference notes
     failures = check_transcription(cases) + check_tempo_map()

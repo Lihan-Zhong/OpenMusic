@@ -10,9 +10,14 @@ the beat grid) and waveform peaks of the mix for the player. Songs whose analysi
 than their stems are skipped unless --force. One summary line is printed per song.
 
 Tempo: the "Beat This!" beat tracker (CPJKU, MIT licence for code and weights; its 8 MB "small0" checkpoint
-  goes to .cache/torch) on the full mix, i.e. the sum of all stems. Beats it skipped in sparse passages are
-  filled in; BPM = 60 / median beat interval; half and double time are listed as alternatives. If beat_this
-  is missing or its checkpoint cannot be loaded, librosa's beat tracker is used (no downbeats then).
+  goes to .cache/torch) on the full mix, i.e. the sum of all stems. Its beats are then cleaned up to one beat
+  per beat of the song's main pulse (regular_beats): near-duplicates and stretches it counted in double time
+  are thinned out, missed beats, half-time stretches and breaks are filled in. Its downbeats then set the bar
+  lines, which keep a steady bar length unless several sure downbeats in a row say otherwise (bar_lines). These
+  beats and bars are final: transcribe.py writes them into the MIDI as they are, so bar N is the same bar in
+  the player and in the MIDI. BPM = 60 / median beat interval; half and double time are listed as
+  alternatives. If beat_this is missing or its checkpoint cannot be loaded, librosa's beat tracker is used (no
+  downbeats then).
 Key: two opinions. (1) S-KEY (Deezer, MIT, vendored in experiments/vendor/skey; needs nnAudio), a small
   self-supervised network, on the full mix. (2) Key profiles: chroma of the harmonic stems (no drums, vocals
   at half weight, as StemDeck does) plus the bass stem on its own, correlated with Shaath's major/minor
@@ -59,7 +64,25 @@ VENDOR = Path(__file__).resolve().parent / "vendor"
 
 BEAT_MODEL = "small0"           # 8 MB; on the user's songs it skipped fewer beats than final0 (80 MB), at half
                                # the time and memory; the paper's GTZAN beat F1 is 88.8 vs 89.1
-MAX_FILL = 8                   # a gap of k beat periods (k = 2..8, each within 10 %) gets k - 1 beats filled in
+# Beat clean-up (regular_beats): the cheapest chain through the detected beats, where each step of k beats costs
+# k * (log(step / (k * local period)))^2 / (2 * BEAT_SPREAD^2) + FILL_COST * (k - 1), and each detected beat left
+# out SKIP_COST. So a beat 10 % early costs 0.5 on each side, and one about 13 % off is replaced by a filled beat.
+# A step longer than its k beats costs at most STEP_CAP: where the beat phase jumps (the grid moves by part of a
+# beat, e.g. where the drums come in), one beat is made longer, and the detected beats around it are kept.
+BEAT_SPREAD = 0.1
+STEP_CAP = 4.0
+SKIP_COST = 1.0                # an extra beat, a near-duplicate, or the off-beat of a stretch counted in double time
+FILL_COST = 0.8                # a beat the tracker missed, or the in-between beat of a stretch counted in half time;
+                               # a little below SKIP_COST, so a first or last beat that fits the grid is kept
+MAX_FILL = 8                   # steps of up to 8 beats are weighed; a longer break gets evenly spaced beats
+LOCAL_S = 10.0                 # local beat period: median of the beat intervals within +-10 s ...
+OCTAVE_TOLERANCE = 0.2         # ... after scaling intervals within 2^0.2 (15 %) of 1/4, 1/2 or k song beats to one
+DOWNBEAT_TOLERANCE = 0.3       # a detected downbeat marks the beat it is within 0.3 beat periods of
+# Bar lines (bar_lines): the cheapest count through the beats; costs per detected downbeat off a bar line and per
+# bar line without one (both scaled by the tracker's confidence), and per odd bar. One stray downbeat is ignored;
+# two sure ones in a row that agree on a new place move the bar lines for good, unsure ones (as in a noise
+# passage) need three or more; a stretch that moves and later moves back needs about twice as many.
+BAR_MISS, BAR_EMPTY, BAR_SHIFT = 1.0, 0.5, 2.5
 CURVE_STEP_S = 5.0             # one tempo-curve point every 5 s, from beats within +-5 s
 STABLE_TOLERANCE = 0.04        # stable: >= 90 % of local tempos within +-4 % of the song's BPM
 
@@ -156,7 +179,9 @@ def beat_model():
 
 
 def track_beats(y):
-    """Beat and downbeat times in seconds, and a short method note. Beat This! if installed, else librosa."""
+    """Beat and downbeat times in seconds, the tracker's confidence in each downbeat (0-1: its probability, from
+    0.5 at its detection threshold up to 1, rescaled) and a short method note. Beat This! if installed, else
+    librosa."""
     model = beat_model()
     if model is None:
         return track_beats_librosa(y)
@@ -164,9 +189,11 @@ def track_beats(y):
     beat_logits, downbeat_logits = model(y, SR)
     beats, downbeats = Postprocessor("minimal")(beat_logits, downbeat_logits)
     beats = refine_peaks(beats, beat_logits.numpy(), fps=50)
-    # the postprocessor put each downbeat on the nearest beat; move it along with that beat
-    downbeats = np.unique([beats[np.argmin(np.abs(beats - d))] for d in downbeats]) if len(beats) else []
-    return beats, np.asarray(downbeats), f"beat_this {package_version('beat-this')} {BEAT_MODEL} on the full mix"
+    prob = 1 / (1 + np.exp(-downbeat_logits.numpy()))
+    frames = np.clip(np.round(np.asarray(downbeats) * 50).astype(int), 0, len(prob) - 1)
+    confidence = np.clip(2 * prob[frames] - 1, 0, 1)
+    return beats, np.asarray(downbeats), confidence, \
+        f"beat_this {package_version('beat-this')} {BEAT_MODEL} on the full mix"
 
 
 def refine_peaks(times, logits, fps):
@@ -185,7 +212,7 @@ def refine_peaks(times, logits, fps):
 
 def track_beats_librosa(y):
     _, frames = librosa.beat.beat_track(y=y, sr=SR, hop_length=512)
-    return librosa.frames_to_time(frames, sr=SR, hop_length=512), np.array([]), \
+    return librosa.frames_to_time(frames, sr=SR, hop_length=512), np.array([]), np.array([]), \
         f"librosa {librosa.__version__} beat_track on the full mix (no downbeats)"
 
 
@@ -241,43 +268,140 @@ def bpm_alternatives(bpm):
     return [round(b, 1) for b in (bpm / 2, bpm * 2) if 40 <= b <= 250]
 
 
-def fill_gaps(beats, downbeats):
-    """Put back the beats (and bar starts) the tracker skipped in quiet or sparse passages.
+def weighted_median(values, weights):
+    order = np.argsort(values)
+    cum = np.cumsum(weights[order])
+    return float(values[order][np.searchsorted(cum, cum[-1] / 2)])
 
-    An interval of about k local beat periods (median of the 16 intervals around it) becomes k equal ones;
-    a bar of about k times the usual number of beats gets k - 1 bar starts. Longer breaks are left alone.
+
+def pulse_period(beats, times):
+    """Beat period at the given times, counted at the song's main pulse.
+
+    The song's pulse is the beat interval that covers the most time (a median weighted by duration, so a stretch
+    the tracker counted in double time cannot outvote a longer one counted normally). Intervals within
+    OCTAVE_TOLERANCE of 1/4 or 1/2 of it (double time), or of k = 2..MAX_FILL times it (missed beats, half time),
+    count as one beat; longer breaks are left out. Each time then gets the duration-weighted median of the
+    intervals within LOCAL_S: a change of tempo is followed, a switch to double or half time is not.
     """
-    from scipy.ndimage import median_filter
-    if len(beats) < 8:
-        return beats, downbeats
     ibi = np.diff(beats)
-    period = median_filter(ibi, size=17, mode="nearest")
-    out = [beats[:1]]
-    for i, gap in enumerate(ibi):
-        k = int(round(gap / period[i]))
-        if 2 <= k <= MAX_FILL and abs(gap / k / period[i] - 1) <= 0.1:
-            out.append(np.linspace(beats[i], beats[i + 1], k + 1)[1:])
+    song = weighted_median(ibi, ibi)
+    scaled, weight = ibi.copy(), ibi.copy()
+    for n in (1 / 4, 1 / 2) + tuple(range(2, MAX_FILL + 1)):
+        near = np.abs(np.log2(ibi / (n * song))) <= OCTAVE_TOLERANCE
+        scaled[near] = ibi[near] / n
+    weight[ibi > (MAX_FILL + 0.5) * song] = 0
+    centres = (beats[:-1] + beats[1:]) / 2
+    out = np.full(len(times), song)
+    for k, t in enumerate(times):
+        near = (np.abs(centres - t) <= LOCAL_S) & (weight > 0)
+        if near.any():
+            out[k] = weighted_median(scaled[near], weight[near])
+    return out
+
+
+def regular_beats(beats):
+    """The detected beats, cleaned up to one beat per beat of the song's main pulse.
+
+    Dynamic programming finds the cheapest chain through the detected beats (costs: see BEAT_SPREAD), each step
+    measured against the pulse_period at its middle: it leaves out near-duplicates and extra beats, and the
+    off-beats of a stretch the tracker counted in double (or quadruple) time, keeping the ones in step with the
+    beats around the stretch; it fills in missed beats and the half-time stretches with evenly spaced beats. A
+    break longer than MAX_FILL beats gets evenly spaced beats at the local period, so the bar count carries on
+    through it. Returns the beats and how many were left out and filled in.
+    """
+    n = len(beats)
+    if n < 8:
+        return beats, 0, 0
+    step = 0.1  # the pulse period is looked up on a 0.1 s grid
+    grid = pulse_period(beats, np.arange(0, beats[-1] + step, step))
+
+    def period(t):
+        return grid[np.clip(np.round(np.asarray(t) / step).astype(int), 0, len(grid) - 1)]
+
+    cost = SKIP_COST * np.arange(n, dtype=float)  # starting the chain at beat j leaves out the j before it
+    prev = np.full(n, -1)
+    for j in range(1, n):
+        reach = (MAX_FILL + 0.5) * period(beats[j])
+        if beats[j] - beats[j - 1] > reach:  # a break: carry on from the last beat before it (or a duplicate of it)
+            i = np.arange(np.searchsorted(beats, beats[j - 1] - 0.5 * period(beats[j - 1])), j)
+            c = cost[i] + SKIP_COST * (j - 1 - i)
         else:
-            out.append(beats[i + 1:i + 2])
-    beats = np.concatenate(out)
+            i = np.arange(np.searchsorted(beats, beats[j] - reach), j)
+            span, p = beats[j] - beats[i], period((beats[i] + beats[j]) / 2)
+            k = np.maximum(np.floor(span / p + 0.5), 1)
+            dev = np.log(span / (k * p))
+            fit = k * dev ** 2 / (2 * BEAT_SPREAD ** 2)
+            c = cost[i] + np.where(dev > 0, np.minimum(fit, STEP_CAP), fit) + FILL_COST * (k - 1) \
+                + SKIP_COST * (j - 1 - i)
+        best = int(np.argmin(c))
+        if c[best] < cost[j]:
+            cost[j], prev[j] = c[best], i[best]
+    chain = [int(np.argmin(cost + SKIP_COST * (n - 1 - np.arange(n))))]  # ending early leaves out the rest
+    while prev[chain[-1]] >= 0:
+        chain.append(int(prev[chain[-1]]))
+    chain = chain[::-1]
+    out = [beats[chain[:1]]]
+    for a, b in zip(chain, chain[1:]):
+        k = max(1, int(np.floor((beats[b] - beats[a]) / period((beats[a] + beats[b]) / 2) + 0.5)))
+        out.append(np.linspace(beats[a], beats[b], k + 1)[1:])
+    out = np.concatenate(out)
+    return out, n - len(chain), len(out) - len(chain)
+
+
+def bar_lines(beats, downbeats, confidence=None):
+    """Bar starts: the detected downbeats, made into bars of a steady length where the music allows.
+
+    Each detected downbeat marks the beat within DOWNBEAT_TOLERANCE of it with its confidence w (0-1; 1 if not
+    given). With a clear meter (beats_per_bar), a Viterbi pass over the position in the bar counts through the
+    beats: it pays BAR_MISS * w for a marked beat off a bar line, BAR_EMPTY * (1 - w) for a bar line and BAR_SHIFT
+    for an odd bar. So stray or missing downbeats leave the bars alone, a lasting change (a 2/4 bar in a 4/4 song)
+    moves them, and unsure downbeats (in a noise passage) need more bars in a row to do so. Bar lines also carry
+    on before the first and after the last detected downbeat, so only the first bar can be short (a pickup).
+    Without a clear meter the marked beats are returned as they are.
+    """
+    if len(downbeats) == 0 or len(beats) < 2:
+        return np.array([])
+    idx = np.clip(np.searchsorted(beats, downbeats), 1, len(beats) - 1)
+    idx = np.where(np.abs(beats[idx - 1] - downbeats) < np.abs(beats[idx] - downbeats), idx - 1, idx)
+    near = np.abs(beats[idx] - downbeats) <= DOWNBEAT_TOLERANCE * float(np.median(np.diff(beats)))
+    weight = np.zeros(len(beats))
+    np.maximum.at(weight, idx[near], np.ones(len(downbeats))[near] if confidence is None else confidence[near])
+    per_bar = beats_per_bar(beats, beats[weight > 0])
+    if per_bar is None:
+        return beats[weight > 0]
+    pos = np.arange(per_bar)
+    total = np.zeros(per_bar)
+    back = np.zeros((len(beats), per_bar), int)
+    for m in range(len(beats)):
+        if m:
+            steady, shifted = np.roll(total, 1), total.min() + BAR_SHIFT  # roll: position q - 1 -> q, last -> 0
+            back[m] = np.where(steady <= shifted, (pos - 1) % per_bar, int(np.argmin(total)))
+            total = np.minimum(steady, shifted)
+        total = total + np.where(pos == 0, BAR_EMPTY * (1 - weight[m]), BAR_MISS * weight[m])
+    path = [int(np.argmin(total))]
+    for m in range(len(beats) - 1, 0, -1):
+        path.append(int(back[m][path[-1]]))
+    return beats[np.array(path[::-1]) == 0]
+
+
+def regular_grid(beats, downbeats, confidence=None):
+    """regular_beats, then bar_lines; and a note for the tempo method saying what changed."""
+    beats = np.unique(np.asarray(beats, float))
+    found = len(beats)
+    beats, dropped, filled = regular_beats(beats)
+    downbeats = bar_lines(beats, np.asarray(downbeats, float), confidence)
+    note = f", {dropped} of {found} detected beats left out and {filled} filled in" if dropped or filled else ""
     per_bar = beats_per_bar(beats, downbeats)
-    if per_bar and len(downbeats) > 1:
-        idx = np.searchsorted(beats, downbeats - 1e-6)
-        filled = [idx[:1]]
-        for a, b in zip(idx[:-1], idx[1:]):
-            k = int(round((b - a) / per_bar))
-            filled.append(np.arange(a, b, per_bar)[1:] if k >= 2 and b - a == k * per_bar else [])
-            filled.append([b])
-        downbeats = beats[np.unique(np.concatenate(filled).astype(int))]
-    return beats, downbeats
+    if per_bar:
+        lengths = np.diff(np.searchsorted(beats, downbeats))
+        note += f"; bar lines from its downbeats, {int(np.sum(lengths != per_bar))} bars not {per_bar} beats long"
+    return beats, downbeats, note
 
 
 def analyze_tempo(mix, duration):
-    beats, downbeats, method = track_beats(mix)
-    found = len(beats)
-    beats, downbeats = fill_gaps(np.asarray(beats), np.asarray(downbeats))
-    if len(beats) > found:
-        method += f", {len(beats) - found} skipped beats filled in"
+    beats, downbeats, confidence, method = track_beats(mix)
+    beats, downbeats, note = regular_grid(beats, downbeats, confidence)
+    method += note
     bpm, curve, stable = tempo_summary(beats, duration)
     tempo = {"bpm": round(bpm, 1) if bpm else None, "bpm_alternatives": bpm_alternatives(bpm) if bpm else [],
              "stable": stable, "tempo_curve": curve, "beats": [round(float(t), 3) for t in beats],

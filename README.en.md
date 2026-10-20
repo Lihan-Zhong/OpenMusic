@@ -25,8 +25,9 @@ Once a song is split into stems, practise with it in a local web page:
 - **Practice tools**: A-B loop, a speed trainer (each loop a little faster), count-in, and a metronome that
   clicks on the song's own beats.
 - **Transcription**: every stem is turned into MIDI; the page shows a piano roll with note names and the notes
-  sounding now. The MIDI carries the song's tempo changes, so bars line up when imported into Guitar Pro or
-  MuseScore. Bass is the most accurate; guitar and piano are dense rough drafts.
+  sounding now. The MIDI carries the song's tempo changes and has exactly the player's beats and bar lines, so
+  bars line up when imported into Guitar Pro or MuseScore. Bass is the most accurate; guitar and piano are
+  dense rough drafts.
 - **Shortcuts**: space play/pause, L loop on/off, `[` `]` speed, ← → one bar back/forward, M metronome.
 
 Usage (with RoFormer stems; every song in `songs/` is processed):
@@ -44,8 +45,9 @@ Then open http://localhost:8765/outputs/roformer_sw_full/player.html (English: p
 - It must be served like this: opened by double-clicking the HTML file, the browser won't let the page process audio.
 - The first command splits the songs (`--no-score` skips MUSDB18 scoring, so no test data is needed); the second
   detects tempo, key and chords; the third makes MIDI; the fourth builds the pages.
-- Detection is a guide: tempo can go wrong in noise or rubato passages; key and chords are right roughly 70–80%
-  of the time, and chord extensions (7, sus, ...) are hints.
+- Detection is a guide: in noise or rubato passages the beat tracker loses the beat; the grid there is evened out
+  into steady bars at the tempo around it, which may not sit exactly on the music. Key and chords are right
+  roughly 70–80% of the time, and chord extensions (7, sus, ...) are hints.
 - A 6-minute song with 6 stems uses about 1.5 GB of browser memory.
 
 ## Current results

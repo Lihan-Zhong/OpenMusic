@@ -15,7 +15,8 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
 - Split new songs without MUSDB18: `evaluate_multi.py roformer_sw --full --no-score` (heavy: run RoFormer on the
   Windows GPU, not on the 16 GB Mac). Library on the Mac: outputs/mp3/<song>/ (3 songs).
 - Separation experiments: classical DSP best `combo` 4.8 dB; Demucs 9.2 dB (3 stems); BS-RoFormer-SW 10.3 dB.
-- Known gaps: chord extensions are hints; Beat This! can lock to 2x/4x in noise passages (Carsick 140-306 s);
+- Known gaps: chord extensions are hints; Beat This! locks to 2x/4x in noise passages (Carsick 140-306 s, no drums):
+  analyze.py evens the grid out (regular_beats, bar_lines; transcribe.py uses it as-is), but there it is a guess;
   guitar MIDI is a dense draft, fast low bass is missed; nobody has listened to slow-speed quality yet.
 
 ## Testing

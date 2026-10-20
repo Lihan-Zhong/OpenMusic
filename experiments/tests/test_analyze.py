@@ -15,6 +15,9 @@ The first run synthesizes the songs (about 2.5 minutes, 320 MB) under outputs/_a
       guitar, room reverb; 7th, sus, dim and slash chords, and some borrowed chords.
       "train" songs were used to choose analyze.py's settings; "test" songs are only scored (CLAUDE.md).
   edge/<name>/  cut from key/major_E: 2 s long, silent, drums only, no bass, faint noise as the bass stem
+Beat grid: made-up beat-tracker output with known true beats and bars (extra and missed beats, near-duplicates,
+half / double / quadruple time, a break, stray and unsure downbeats, a real 2/4 bar, a real tempo change) through
+analyze.regular_grid; no audio needed.
 Tempo passes within 1 % of the true BPM (half or double time counted separately); keys are scored as exact /
 fifth / relative / parallel / other, like the MIREX key task; chords with mir_eval's standard scores (root,
 majmin, mirex, thirds, triads, sevenths, tetrads), weighted by duration. Needs mir_eval (MIT, dev only).
@@ -453,14 +456,74 @@ def check_chords(split, count=24, verbose=True):
     return mean, problems
 
 
-def check_helpers():
-    """fill_gaps, peaks and chord spelling on made-up input."""
+def tracker_slips():
+    """What Beat This! does on a noisy rock song, made up on a 140 BPM grid of 300 beats (5 ms jitter), with
+    downbeats on every 4th beat from beat 2: (detected beats, detected downbeats, their confidence, true beats,
+    true downbeat indices). Slips: extra beats 0.3 beat late, near-duplicates 75 ms apart (as at 121.5 s in
+    Carsick Cars), a stretch counted in half time, one in double time and one in quadruple time, a 12-beat break
+    with no beats, missing downbeats, single stray downbeats, and a noise stretch of 5 bars whose only downbeats
+    are unsure ones on the wrong beat."""
+    rng = rng_for("tracker_slips")
+    true = 0.2 + 60 / 140 * np.arange(300) + rng.normal(0, 0.005, 300)
+    double = (true[160:176] + true[161:177]) / 2
+    quad = np.concatenate([true[k] + (true[k + 1] - true[k]) * np.array([0.25, 0.5, 0.75]) for k in range(236, 252)])
+    extra = np.concatenate([true[[30, 77, 250]] + 0.13, true[[50, 283]] + 0.075, true[[150]] - 0.075])
+    detected = np.concatenate([true[:100], true[100:140:2], true[140:200], true[212:], double, quad, extra])
+    detected = np.sort(detected + rng.normal(0, 0.003, len(detected)))
+    down = np.arange(2, 300, 4)
+    noisy = range(178, 195, 4)
+    said = [true[i] for i in down if i not in (18, 58, 270) and not 200 <= i < 212 and i not in noisy]
+    said += [true[i + 1] for i in (42, 150, 230)] + [true[i + 2] for i in (90, 262)]  # sure but stray
+    times = np.array(said + [true[i + 1] for i in noisy])
+    confidence = np.array([1.0] * len(said) + [0.3] * len(noisy))
+    order = np.argsort(times)
+    return detected, times[order], confidence[order], true, down
+
+
+def check_beat_grid():
+    """regular_grid on made-up tracker output whose true beats and bars are known. Returns a list of problems."""
     problems = []
+    # gaps of 3 and 4 beats and a missing downbeat
     beats = np.arange(0, 20, 0.5)
-    kept = np.r_[0:10, 12:30, 33:40]  # two gaps: 3 and 4 beat periods
-    filled, bars = analyze.fill_gaps(beats[kept], beats[::4][[0, 1, 2, 4, 5, 6, 7, 8, 9]])
+    kept = np.r_[0:10, 12:30, 33:40]
+    filled, bars, _ = analyze.regular_grid(beats[kept], beats[::4][[0, 1, 2, 4, 5, 6, 7, 8, 9]])
     if not (np.allclose(filled, beats) and np.allclose(bars, beats[::4])):
-        problems.append("fill_gaps")
+        problems.append("gaps")
+
+    detected, said, confidence, true, down = tracker_slips()
+    found, bars, note = analyze.regular_grid(detected, said, confidence)
+    off_ms = np.abs(found - true).max() * 1000 if len(found) == len(true) else np.inf
+    gaps = np.diff(found)
+    dup = int(np.sum(gaps < 0.5 * 60 / 140))
+    lengths = np.diff(np.searchsorted(found, bars))
+    on_grid = len(found) == len(true) and len(bars) == len(down) and np.allclose(bars, found[down])
+    print(f"\nBeat grid, made-up tracker slips: {len(detected)} detected -> {len(found)} beats (true {len(true)}), "
+          f"{off_ms:.1f} ms from the true beats at most, {dup} beat intervals under half a beat, bars of "
+          f"{dict(zip(*[v.tolist() for v in np.unique(lengths, return_counts=True)]))} beats{note}")
+    if len(found) != len(true) or off_ms > 20 or dup:
+        problems.append(f"tracker slips: beats ({len(found)} for {len(true)}, {off_ms:.0f} ms off, {dup} duplicates)")
+    if not on_grid:  # bar lines on every 4th beat from beat 2 (beats 0-1 are a pickup), and nowhere else
+        problems.append(f"tracker slips: bars {[round(float(b), 2) for b in bars[:6]]}... lengths {lengths.tolist()}")
+
+    # a real 2/4 bar: sure downbeats move by two beats for good after beat 40
+    beats = 0.5 + 0.5 * np.arange(120)
+    down = list(range(0, 41, 4)) + list(range(42, 120, 4))
+    _, bars, _ = analyze.regular_grid(beats, beats[down], np.ones(len(down)))
+    if not np.allclose(bars, beats[down]):
+        problems.append("a 2/4 bar is not followed")
+
+    # a real change from 100 to 150 BPM (not a double-time count) keeps every beat
+    beats = np.concatenate([0.3 + 0.6 * np.arange(50), 0.3 + 0.6 * 50 + 0.4 * np.arange(75)])
+    found, _, _ = analyze.regular_grid(beats, [])
+    if len(found) != len(beats) or not np.allclose(found, beats):
+        problems.append(f"100 -> 150 BPM: {len(found)} beats for {len(beats)}")
+    print("Beat grid:", "; ".join(problems) or "ok")
+    return problems
+
+
+def check_helpers():
+    """peaks and chord spelling on made-up input."""
+    problems = []
     sine = np.sin(np.linspace(0, 200 * np.pi, analyze.SR * 2)).astype(np.float32)
     peaks = analyze.peaks(sine * 3)  # too loud: must still land in -1..1
     if len(peaks["data"]) != 2 * peaks["samples_per_second"] or max(peaks["data"]) > 1 or min(peaks["data"]) < -1:
@@ -528,7 +591,7 @@ def ensure_songs(remake):
 def quick():
     """A subset with thresholds a little below what the current settings reach, so a regression fails. Only
     train songs: the test songs are scored once, with --full, after the settings are fixed (CLAUDE.md)."""
-    failures = check_helpers() + check_edges()
+    failures = check_helpers() + check_beat_grid() + check_edges()
     ok, total = check_tempo()
     if ok < total:
         failures.append(f"tempo {ok}/{total}")
@@ -552,6 +615,7 @@ def main():
     if not args.full:
         sys.exit(0 if quick() else 1)
     print("helpers:", check_helpers() or "ok")
+    check_beat_grid()
     check_edges()
     check_tempo()
     check_keys(splits=("train",), variants=True)  # what the key settings were chosen on

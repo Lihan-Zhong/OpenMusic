@@ -24,14 +24,13 @@ dependencies; the ONNX path needs none of TensorFlow, CoreML or TFLite (resampy 
     pip install onnxruntime==1.30.0 pretty_midi==0.2.11.post0 mido==1.3.3 mir_eval==0.8.2 resampy==0.4.3
     pip install --no-deps basic-pitch==0.4.0
 
-Tempo map: with beats in analysis.json, the MIDI tempo follows the song, so beat N of the song is MIDI beat N
-(within TEMPO_TOLERANCE_S) and bars start on the detected downbeats (a short first bar takes the beats before
-the first downbeat); tempo changes only where a steady tempo stops fitting the beats, which keeps the score
-readable. Beat-tracker slips are smoothed first: extra beats closer than 0.7 beat (also double-time
-stretches) are dropped, gaps and half-time stretches are filled with beats, and the bar lines only move when
-CONFIRM_DOWNBEATS downbeats in a row agree (an odd bar), not for a single stray downbeat. The time before the
-first beat becomes lead-in beats. Without beats: a fixed tempo (the analysis BPM, or 120). Either way each note
-keeps its time in seconds, so the MIDI lines up with the audio in a DAW.
+Tempo map: with beats in analysis.json, the MIDI tempo follows the song: its beats and bar lines are used as they
+are (analyze.py has already cleaned them up), so every beat of analysis.json is one MIDI beat (within
+TEMPO_TOLERANCE_S) and every downbeat a MIDI bar line, and bar N in the MIDI is bar N in the practice player. The
+tempo changes only where a steady tempo stops fitting the beats, which keeps the score readable. The time
+before the first beat becomes lead-in beats, and everything before the first downbeat one short first bar (a
+pickup, the player's bar 0) when it fits. Without beats: a fixed tempo (the analysis BPM, or 120). Either way
+each note keeps its time in seconds, so the MIDI lines up with the audio in a DAW.
 """
 import argparse
 import json
@@ -73,8 +72,7 @@ MIN_AUDIBLE_S = 2.0             # ... for at least this long; otherwise it is sk
 GATE_DB = 30.0                  # drop notes more than this below the stem's loud level (99th percentile)
 
 PPQ = 480                       # MIDI ticks per beat
-TEMPO_TOLERANCE_S = 0.025       # every detected beat lands within this of its MIDI beat
-CONFIRM_DOWNBEATS = 3           # downbeats in a row needed to move the bar lines (one odd bar)
+TEMPO_TOLERANCE_S = 0.025       # every analysis.json beat lands within this of its MIDI beat
 DEFAULT_BPM = 120.0
 FLAT_NAMES = {"C#": "Db", "D#": "Eb", "F#": "Gb", "G#": "Ab", "A#": "Bb"}
 
@@ -214,42 +212,6 @@ def steady_runs(beats):
     return ends
 
 
-def regular_beats(beats, period):
-    """The detected beats, made regular enough to write music on: a beat closer than 0.7 of the song's beat
-    period to the one before is dropped (a tracker slip, or a stretch counted in double time; 0.7 is about
-    halfway between half a beat and a beat, on a tempo scale), and a gap of 1.5 periods or more (a half-time
-    stretch, a break without drums) is filled with evenly spaced beats."""
-    kept = [beats[0]]
-    for t in beats[1:]:
-        if t - kept[-1] >= 0.7 * period:
-            kept.append(t)
-    out = [kept[0]]
-    for t in kept[1:]:
-        n = int(round((t - out[-1]) / period))
-        if n >= 2:
-            out += list(out[-1] + (t - out[-1]) * np.arange(1, n) / n)
-        out.append(t)
-    return np.array(out)
-
-
-def bar_starts(down_idx, per_bar, n_beats):
-    """Beat indices where bars start: bars of per_bar beats from the first downbeat on, moved only when
-    CONFIRM_DOWNBEATS downbeats in a row agree on a new place (an odd bar in the song, not a tracker slip);
-    the bar before the move is cut short."""
-    anchors, pending = [down_idx[0]], []
-    for d in down_idx[1:]:
-        if (d - anchors[-1]) % per_bar == 0:
-            pending = []
-            continue
-        if pending and (d - pending[0]) % per_bar:
-            pending = []
-        pending.append(d)
-        if len(pending) == CONFIRM_DOWNBEATS:
-            anchors.append(pending[0])
-            pending = []
-    return [b for a, nxt in zip(anchors, anchors[1:] + [n_beats]) for b in range(a, nxt, per_bar)]
-
-
 def bar_signatures(starts, per_bar):
     """[(MIDI beat, beats per bar)] wherever the bar length changes, for bars starting at the given MIDI
     beats; before the first one come whole bars and a short first bar (pickup)."""
@@ -262,32 +224,35 @@ def bar_signatures(starts, per_bar):
 
 def tempo_map(analysis):
     """(knots, signatures, note): knots = [(seconds, MIDI beat)] with a constant tempo between neighbours
-    and after the last; signatures = [(MIDI beat, beats per bar)]; note says what was done, for "method"."""
+    and after the last; signatures = [(MIDI beat, beats per bar)]; note says what was done, for "method".
+    Beat k of analysis.json is MIDI beat lead + k, and each of its downbeats starts a MIDI bar."""
     tempo = (analysis or {}).get("tempo") or {}
-    detected = np.asarray(tempo.get("beats") or [], float)
+    beats = np.asarray(tempo.get("beats") or [], float)
     per_bar = tempo.get("beats_per_bar") or 4
-    if len(detected) < 4 or np.any(np.diff(detected) <= 0):
+    if len(beats) < 4 or np.any(np.diff(beats) <= 0):
         bpm = float(tempo.get("bpm") or DEFAULT_BPM)
         return [(0.0, 0.0), (60.0 / bpm, 1.0)], [(0, per_bar)], f"fixed tempo {bpm:g} BPM"
-    period = float(np.median(np.diff(detected)))
-    beats = regular_beats(detected, period)
-    ends = steady_runs(beats)
-    lead = int(round(beats[0] / period))
-    if beats[0] > 0.02:
-        lead = max(lead, 1)  # the lead-in before the first beat needs at least one MIDI beat
-    knots = [(0.0, 0.0)] + [(float(beats[i]), float(lead + i)) for i in ([0] if lead else []) + ends]
-
-    note = (f"tempo map from analysis.json beats ({len(knots) - 1} tempos; every beat within "
-            f"{TEMPO_TOLERANCE_S * 1000:.0f} ms of its MIDI beat")
-    if len(beats) != len(detected) or not np.all(np.isin(detected, beats)):
-        note += f"; {len(beats)} beats from {len(detected)} detected, after filling gaps and dropping slips"
+    period = float(np.median(np.diff(beats)))
     downbeats = tempo.get("downbeats") or []
     down_idx = sorted({i for i, d in ((int(np.argmin(np.abs(beats - d))), d) for d in downbeats)
                        if abs(beats[i] - d) < 0.25 * period})
+    # lead-in beats before the first beat: as many as fit its length, but at least one (MIDI beat 0 is at 0 s)
+    # and, when there are bars, few enough that everything before the first downbeat is one short bar
+    lead = int(round(beats[0] / period))
+    if down_idx:
+        lead = min(lead, per_bar - 1 - down_idx[0])
+    if beats[0] > 0.02:
+        lead = max(lead, 1)
+    lead = max(lead, 0)
+    ends = steady_runs(beats)
+    knots = [(0.0, 0.0)] + [(float(beats[i]), float(lead + i)) for i in ([0] if lead else []) + ends]
+    note = (f"tempo map from the {len(beats)} analysis.json beats, one MIDI beat each after a lead-in of {lead} "
+            f"beat{'' if lead == 1 else 's'} ({len(knots) - 1} tempos; every beat within "
+            f"{TEMPO_TOLERANCE_S * 1000:.0f} ms of its MIDI beat")
     if not down_idx:
         return knots, [(0, per_bar)], note + f"), {per_bar} beats per bar"
-    starts = [lead + b for b in bar_starts(down_idx, per_bar, len(beats))]
-    return knots, bar_signatures(starts, per_bar), note + f"), {per_bar}/4 bars from its downbeats"
+    starts = [lead + i for i in down_idx]
+    return knots, bar_signatures(starts, per_bar), note + f"), bars from its {len(down_idx)} downbeats"
 
 
 def seconds_to_beats(t, knots):
