@@ -132,10 +132,39 @@ pages inside it.
   v3.0 (AGPL-3.0, see [LICENSE](LICENSE)). You may use, modify and redistribute it, but any derivative
   work must also be released as open source under AGPL-3.0. That includes running a modified version
   as a network service, e.g. a website: its users must be able to get the source code.
-- MUSDB18 is for non-commercial research only, so it is not in the repo. The `*_stats.npz` files and
+- MUSDB18 is for non-commercial educational and academic use only, so it is not in the repo. The `*_stats.npz` files and
   the gain table in `experiments/methods/stereo.py` are a small set of parameters derived from its
   train split; they fall under MUSDB18's terms, not the AGPL.
-- The Demucs authors say its model weights are for research use only (facebookresearch/demucs#327).
-  BS-RoFormer-SW is a community re-hosted checkpoint with no stated licence. Fine for personal practice;
+- The Demucs model weights are not covered by its MIT licence; the author says they are "provided only
+  for scientific purposes" (facebookresearch/demucs#327). BS-RoFormer-SW is a community-shared checkpoint
+  whose trainer and licence are unknown. Fine for personal practice;
   don't use them commercially.
 - Don't commit other people's songs or separated stems to the repo.
+
+## Acknowledgements
+
+This project builds on many open-source projects and research results. Thank you to all of them.
+
+**Separation models and code**
+
+- [Demucs](https://github.com/adefossez/demucs) by Alexandre Défossez / Meta AI, MIT-licensed code (the original repo, [facebookresearch/demucs](https://github.com/facebookresearch/demucs), is archived). The HTDemucs model is from Rouard, Massa & Défossez, “Hybrid Transformers for Music Source Separation”, ICASSP 2023 ([doi](https://doi.org/10.1109/ICASSP49357.2023.10096956)); the 6-stem htdemucs_6s model is described in the Demucs README.
+- [BS-RoFormer](https://github.com/lucidrains/BS-RoFormer), the PyTorch implementation by Phil Wang (lucidrains), MIT. The architecture is from Lu, Wang, Kong & Hung, “Music Source Separation with Band-Split RoPE Transformer”, ICASSP 2024 ([doi](https://doi.org/10.1109/ICASSP48485.2024.10446843)).
+- [bs-roformer-infer](https://github.com/openmirlab/bs-roformer-infer) by OpenMIRLab, MIT, which adapts code from lucidrains/BS-RoFormer and [python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator) (Andrew Beveridge, MIT).
+- The BS-RoFormer SW 6-stem checkpoint: first uploaded to Hugging Face by jarredou as “BS-ROFO-SW-Fixed” (that account has since been deleted); we download the mirror at [enerjazzer/BS-ROFO-SW-Fixed](https://huggingface.co/enerjazzer/BS-ROFO-SW-Fixed). Its trainer and licence are unknown. It uses the config format of [Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training) (ZFTurbo, MIT).
+
+**Data and evaluation**
+
+- MUSDB18: Rafii, Liutkus, Stöter, Mimilakis & Bittner, “The MUSDB18 corpus for music separation”, 2017 ([doi:10.5281/zenodo.1117372](https://doi.org/10.5281/zenodo.1117372)). The 7-second sample comes from [sigsep/sigsep-mus-db](https://github.com/sigsep/sigsep-mus-db).
+- Our global SDR score follows the Music Demixing Challenge: Mitsufuji et al., “Music Demixing Challenge 2021”, Frontiers in Signal Processing, 2022 ([doi](https://doi.org/10.3389/frsip.2021.808395)). Our implementation differs in small details.
+
+**Papers behind the classical signal-processing methods**
+
+- Harmonic/percussive separation: D. FitzGerald, “Harmonic/Percussive Separation using Median Filtering”, DAFx-10, 2010 ([link](https://dafx.de/paper-archive/details/DsmIVcydPX66AuaqEmKyTQ)); D. FitzGerald & M. Gainza, “Single Channel Vocal Separation using Median Filtering and Factorisation Techniques”, ISAST Trans. on Electronic and Signal Processing 4(1), 2010 ([link](https://arrow.tudublin.ie/argart/8)); J. Driedger, M. Müller & S. Disch, “Extending Harmonic-Percussive Separation of Audio Signals”, ISMIR 2014 ([doi](https://doi.org/10.5281/zenodo.1415226)).
+- Repetition: Z. Rafii & B. Pardo, “REpeating Pattern Extraction Technique (REPET): A Simple Method for Music/Voice Separation”, IEEE TASLP 21(1), 2013 ([doi](https://doi.org/10.1109/TASL.2012.2213249)); Z. Rafii & B. Pardo, “Music/Voice Separation using the Similarity Matrix”, ISMIR 2012 ([doi](https://doi.org/10.5281/zenodo.1417631)); D. FitzGerald, “Vocal Separation using Nearest Neighbours and Median Filtering”, ISSC 2012 ([doi](https://doi.org/10.1049/ic.2012.0225)).
+- Melody-guided: J.-L. Durrieu, G. Richard, B. David & C. Févotte, “Source/Filter Model for Unsupervised Main Melody Extraction From Polyphonic Audio Signals”, IEEE TASLP 18(3), 2010 ([doi](https://doi.org/10.1109/TASL.2010.2041114)).
+- Matrix factorization (NMF): D. D. Lee & H. S. Seung, “Learning the parts of objects by non-negative matrix factorization”, Nature 401, 1999 ([doi](https://doi.org/10.1038/44565)); D. D. Lee & H. S. Seung, “Algorithms for Non-negative Matrix Factorization”, NIPS 13, 2000 ([link](https://papers.nips.cc/paper_files/paper/2000/hash/f9d1152547c0bde01830b7e8bd60024c-Abstract.html)).
+- Stereo position: C. Avendano, “Frequency-domain source identification and manipulation in stereo mixes for enhancement, suppression and re-panning applications”, IEEE WASPAA 2003 ([doi](https://doi.org/10.1109/ASPAA.2003.1285818)); D. Barry, B. Lawlor & E. Coyle, “Sound Source Separation: Azimuth Discrimination and Resynthesis” (ADRess), DAFx-04, 2004 ([link](https://dafx.de/paper-archive/details/jK8kPFnlWXDwy1Kumk3kkQ)).
+
+**Python libraries**
+
+[PyTorch](https://github.com/pytorch/pytorch) (BSD-3-Clause), [NumPy](https://github.com/numpy/numpy) (BSD-3-Clause), [SciPy](https://github.com/scipy/scipy) (BSD-3-Clause), [librosa](https://github.com/librosa/librosa) (ISC; McFee et al., SciPy 2015, [doi](https://doi.org/10.25080/Majora-7b98e3ed-003)), [python-soundfile](https://github.com/bastibe/python-soundfile) (BSD-3-Clause) with its bundled [libsndfile](https://github.com/libsndfile/libsndfile) (LGPL-2.1+; MP3 via LAME and mpg123), [PyAV](https://github.com/PyAV-Org/PyAV) (BSD-3-Clause) with [FFmpeg](https://ffmpeg.org) (LGPL-2.1+), [scikit-learn](https://github.com/scikit-learn/scikit-learn) (BSD-3-Clause), [Matplotlib](https://github.com/matplotlib/matplotlib) (Matplotlib License), [ML Collections](https://github.com/google/ml_collections) (Apache-2.0), [PyYAML](https://github.com/yaml/pyyaml) (MIT).

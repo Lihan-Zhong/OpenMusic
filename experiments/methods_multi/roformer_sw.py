@@ -1,7 +1,9 @@
-"""BS-RoFormer-SW (community 6-stem model by jarredou): vocals, drums, bass, guitar, piano, other.
+"""BS-RoFormer-SW (community-shared 6-stem checkpoint): vocals, drums, bass, guitar, piano, other.
 
-Weights: .cache/bs-roformer/ (~700 MB, re-hosted community checkpoint; licence not stated, so
-personal experiments only). Inference via the MIT-licensed bs-roformer-infer package.
+Weights: .cache/bs-roformer/ (~700 MB). The checkpoint was first uploaded to Hugging Face by jarredou as
+BS-ROFO-SW-Fixed (an edited copy, not necessarily their training); we download the mirror at
+huggingface.co/enerjazzer/BS-ROFO-SW-Fixed. Trainer and licence are unknown, so personal experiments only.
+Inference via the MIT-licensed bs-roformer-infer package.
 """
 import warnings
 
@@ -17,6 +19,7 @@ from common import ROOT
 warnings.filterwarnings("ignore", message=".*torch.cuda.amp.autocast.*")
 warnings.filterwarnings("ignore", message=".*CUDA is not available.*")
 
+# The slug below is bs-roformer-infer's registry name for this checkpoint, not a statement of who trained it.
 CKPT, CFG = ensure_model_assets("roformer-model-bs-roformer-sw-by-jarredou", models_dir=ROOT / ".cache" / "bs-roformer")
 with open(CFG) as f:
     CONFIG = ConfigDict(yaml.load(f, Loader=SafeLoaderWithTuple))

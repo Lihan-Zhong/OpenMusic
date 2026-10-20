@@ -81,7 +81,7 @@ LABELS = {
         "demucs_ai": ("Demucs 4 轨（AI）", "Meta 开源的神经网络模型，用几千首分轨训练过。贝斯并入“其他”。"),
         "demucs4": ("Demucs 4 轨（AI）", "人声 / 鼓 / 贝斯 / 其他。"),
         "demucs6": ("Demucs 6 轨（AI）", "在 4 轨基础上多分出吉他和钢琴。作者自评：吉他还行，钢琴串音和杂音很多。"),
-        "roformer_sw": ("BS-RoFormer-SW 6 轨（AI）", "社区训练的 6 轨模型（约 700 MB），据公开评测吉他、钢琴明显好于 Demucs 6 轨。"),
+        "roformer_sw": ("BS-RoFormer-SW 6 轨（AI）", "社区流传的 6 轨模型（约 700 MB，训练者和协议不明），据公开评测吉他、钢琴明显好于 Demucs 6 轨。"),
     },
     "en": {
         "mixture": ("Do nothing (floor)", "Every stem is just the original mix. Any method should beat this."),
@@ -92,7 +92,7 @@ LABELS = {
         "demucs4": ("Demucs 4-stem (AI)", "Vocals / drums / bass / other."),
         "demucs6": ("Demucs 6-stem (AI)", "Adds guitar and piano to the 4 stems. Its authors say guitar is okay and "
                     "piano has a lot of bleed and artifacts."),
-        "roformer_sw": ("BS-RoFormer-SW 6-stem (AI)", "Community-trained 6-stem model (about 700 MB); public "
+        "roformer_sw": ("BS-RoFormer-SW 6-stem (AI)", "Community-shared 6-stem checkpoint (about 700 MB; trainer and licence unknown); public "
                         "benchmarks rate its guitar and piano clearly above Demucs 6-stem."),
         "stereo": ("Stereo position", "Splits by where sounds sit between left and right (centred, wide, side), "
                    "with per-band gains learned on the train clips."),
