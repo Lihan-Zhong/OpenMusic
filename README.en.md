@@ -83,9 +83,17 @@ Then open http://localhost:8765/outputs/roformer_sw_full/player.html (English: p
 
 ## Guitar Pro file
 
-After the MIDI step the workbench writes `<song>/transcription/<song>.gp5`, so there is no need to import the MIDI
-files one by one and tidy them up. "Download Guitar Pro" is in the workbench's MIDI column and in the practice
-player (below the piano roll). It opens in Guitar Pro 5 and later, TuxGuitar and MuseScore.
+After the MIDI step the workbench writes the whole song as a score, so there is no need to import the MIDI files
+one by one and tidy them up:
+
+- `<song>/transcription/<song>.gp`: the Guitar Pro 7 and 8 format, the default download; Chinese titles show
+  correctly.
+- `<song>/transcription/<song>.gp5`: the same score for older versions such as Guitar Pro 5 and 6. That format
+  cannot hold Chinese (Guitar Pro reads its text in a single-byte code page, also on a Mac), so its title and
+  artist are in pinyin, e.g. "Zhong Nan Hai".
+
+"Download Guitar Pro" is in the workbench's MIDI column and in the practice player (below the piano roll), with
+".gp5 (older versions)" next to it.
 
 - **Tracks**: guitar (6 strings, standard tuning, tab + notation), bass (4 strings, tab + notation), the vocal
   melody (notation only); piano and other only when they have enough notes; drums when there is a drum
@@ -107,11 +115,11 @@ player (below the piano roll). It opens in Guitar Pro 5 and later, TuxGuitar and
   at the same time.
 - **Chords, key, title**: the detected chord names sit above the staff; title, artist, key and tempo are in the
   file's score information.
-- It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The Guitar Pro 5 format has no
-  fixed text encoding (Guitar Pro reads it in the computer's own), so a Chinese title is written in this
-  computer's encoding (UTF-8 on a Mac, GBK on Chinese Windows). If the title shows up garbled on another computer,
-  write it again with `--encoding gbk` or `--encoding utf-8`. The file name is always right, and track and chord
-  names are plain ASCII.
+- It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The file name is always the
+  song's real name; track and chord names are plain ASCII.
+- How: PyGuitarPro writes the .gp5, which is read back and checked; alphaTab (included in
+  `experiments/vendor/alphatab/`, run inside Python by mini-racer, so no Node.js or browser is needed) turns it
+  into the .gp with the Chinese title put back, which is read back and checked the same way.
 
 On its own: `.venv/bin/python experiments/export_gp.py outputs/mp3 --song "<song>"`.
 
@@ -164,10 +172,11 @@ experiments/
   build_page.py       build the listening pages compare.html (Chinese) and compare.en.html (English)
   analyze.py          detect tempo (beats, bars), key and chords; writes analysis.json
   transcribe.py       turn each stem into MIDI and a note list (transcription/)
-  export_gp.py        put the stems' transcriptions into one Guitar Pro file (transcription/<song>.gp5)
+  export_gp.py        put the stems' transcriptions into one Guitar Pro file (transcription/<song>.gp, and .gp5 for older versions)
+  gp7.py              turn the .gp5 into a Guitar Pro 7/8 .gp with alphaTab, and read it back
   build_player.py     build the practice player player.html (Chinese) and player.en.html (English)
   tests/              automated tests for analysis, transcription, the Guitar Pro export and the player
-  vendor/             third-party code included as is, each with its LICENSE: Signalsmith Stretch, wavesurfer.js, S-KEY
+  vendor/             third-party code included as is, each with its LICENSE: Signalsmith Stretch, wavesurfer.js, S-KEY, alphaTab
   methods/            3-stem methods, one separate(mix, sr) per file
   methods_multi/      multi-stem AI models: demucs4, demucs6, roformer_sw
 results/              each method's scores (JSON) and experiment notes in method_info.json
@@ -230,7 +239,7 @@ To reproduce the separation comparison (it needs the MUSDB18 test data), see [do
   whose trainer and licence are unknown. Fine for personal practice;
   don't use them commercially.
 - Don't commit other people's songs or separated stems to the repo.
-- Third-party code in `experiments/vendor/` keeps its own licence (MIT / BSD-3-Clause), see the LICENSE in each
+- Third-party code in `experiments/vendor/` keeps its own licence (MIT / BSD-3-Clause / MPL-2.0), see the LICENSE in each
   folder. Use S-KEY only from the copy in the repo; **don't** `pip install skey`, which is an unrelated package.
 
 ## Acknowledgements
@@ -266,7 +275,9 @@ This project builds on many open-source projects and research results. Thank you
 - [S-KEY](https://github.com/deezer/skey) (Deezer, ICASSP 2025, MIT): key detection model, included in `experiments/vendor/skey/`; needs [nnAudio](https://github.com/KinWaiCheuk/nnAudio) (MIT).
 - Key profile tables from [Essentia](https://github.com/MTG/essentia)'s key.cpp (AGPL-3.0); the template + Viterbi chord recipe follows the example in librosa's documentation.
 - [Basic Pitch](https://github.com/spotify/basic-pitch) (Spotify, ICASSP 2022, Apache-2.0): MIDI transcription, run with [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT); MIDI I/O with [pretty_midi](https://github.com/craffel/pretty-midi) (MIT) and [mido](https://github.com/mido/mido) (MIT), evaluation with [mir_eval](https://github.com/mir-evaluation/mir_eval) (MIT), resampling with [resampy](https://github.com/bmcfee/resampy) (ISC).
-- [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) (Sviatoslav Abakumov, LGPL-3.0): writes and reads back the Guitar Pro file; it depends on [attrs](https://github.com/python-attrs/attrs) (MIT).
+- [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) (Sviatoslav Abakumov, LGPL-3.0): writes and reads back the Guitar Pro 5 file; it depends on [attrs](https://github.com/python-attrs/attrs) (MIT).
+- [alphaTab](https://github.com/CoderLine/alphaTab) (Daniel Kuschny and contributors, MPL-2.0): turns the Guitar Pro 5 file into a Guitar Pro 7/8 .gp and reads it back; version 1.8.4 is included unmodified, see `experiments/vendor/alphatab/README.md`. It runs in [mini-racer](https://github.com/bpcreech/PyMiniRacer) (ISC, which embeds [V8](https://v8.dev), BSD-3-Clause).
+- [pypinyin](https://github.com/mozillazg/python-pinyin) (MIT): Chinese titles as pinyin in the .gp5.
 - [Playwright](https://github.com/microsoft/playwright-python) (Apache-2.0): only for the player's automated tests.
 
 **Python libraries**

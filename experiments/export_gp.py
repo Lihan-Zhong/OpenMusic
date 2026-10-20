@@ -1,17 +1,18 @@
-"""Write a song's transcription as one Guitar Pro 5 file, so it opens as a score with tablature instead of
+"""Write a song's transcription as one Guitar Pro file, so it opens as a score with tablature instead of
 having to import and tidy up each MIDI file by hand.
 
     python experiments/export_gp.py outputs/mp3
     python experiments/export_gp.py outputs/mp3 --song "Carsick Cars - 中南海" --force
 
 For each <stems_root>/<song>/ folder with transcription/*.notes.json (from transcribe.py) this writes
-<song>/transcription/<song>.gp5 with one track per stem: guitar (6 strings, standard tuning, tab + notation),
+<song>/transcription/<song>.gp (Guitar Pro 7/8, the default download) and <song>.gp5 (for older versions), with
+one track per stem: guitar (6 strings, standard tuning, tab + notation),
 bass (4 strings, tab + notation), vocals as a melody (notation only), piano and other (notation only) when
 they have at least MIN_TRACK_NOTES notes, and drums when transcription/drums.mid exists (any General MIDI drum
 file). Outputs newer than all their inputs are kept unless --force.
 
 Bars and beats: the same tempo map as the MIDI files (transcribe.tempo_map on analysis.json), so bar N of the
-.gp5 is bar N of the MIDI and of the practice player (bar 1 may be a short pickup bar). Every analysis beat is
+score is bar N of the MIDI and of the practice player (bar 1 may be a short pickup bar). Every analysis beat is
 a quarter note; each bar's time signature is its number of beats over 4. Guitar Pro keeps one whole-number tempo
 at a time, so the written tempo follows the song's per-bar tempo and only changes when it moves by more than
 TEMPO_STEP; inside Guitar Pro the playback is therefore close to, not locked to, the recording.
@@ -30,17 +31,19 @@ chord shapes whose strings do not cross. A chord with no playable fingering lose
 Chord names from analysis.json sit above every pitched track (Guitar Pro chord symbols, no diagrams); title,
 artist, key and tempo go in the file's score information.
 
-Guitar Pro 5 files have no fixed text encoding: Guitar Pro reads names with the computer's own code page.
-The default here is this computer's locale encoding (UTF-8 on macOS, GBK on Chinese Windows); use
---encoding if the Chinese title shows up garbled. Track and chord names are plain ASCII either way.
+Text: Guitar Pro reads the text of a .gp5 in a single-byte code page (on macOS too), so a Chinese title in
+any encoding comes out garbled. The .gp5 therefore gets plain ASCII: Chinese as pinyin (pypinyin, MIT), e.g.
+"Zhong Nan Hai", while the .gp, whose score is UTF-8 XML, keeps the real title. Track and chord names are ASCII.
 
-Writes with PyGuitarPro (Sviatoslav Abakumov, LGPL-3.0, https://github.com/Perlence/PyGuitarPro), and reads
-the file back with it to check the bar count, tempo and note counts.
+The score is built and written with PyGuitarPro (Sviatoslav Abakumov, LGPL-3.0,
+https://github.com/Perlence/PyGuitarPro) as the .gp5, which is read back to check the bar count, tempo and note
+counts. gp7.py then turns it into the .gp with alphaTab (MPL-2.0, vendored), which reads that back the same way.
 """
 import argparse
 import json
-import locale
+import re
 import time
+import unicodedata
 from importlib.metadata import version
 from itertools import combinations
 from pathlib import Path
@@ -48,7 +51,9 @@ from pathlib import Path
 import guitarpro as gp
 import mido
 import numpy as np
+from pypinyin import lazy_pinyin
 
+import gp7
 from transcribe import SETTINGS, read_analysis, seconds_to_beats, tempo_map
 
 TICKS = gp.Duration.quarterTime    # 960 ticks per beat; every analysis beat is written as a quarter note
@@ -57,7 +62,6 @@ TRIPLET_GAIN = 0.5                 # a beat takes the triplet grid when that at 
 TRIPLET_NEAR = 0.06                # distance to the grid, and one onset is within 0.06 beat of 1/3 or 2/3
 LEGATO_BEATS = 0.5                 # a note ending less than this before the next onset is held until it
 MELODY_LEGATO_BEATS = 1.0          # the same for the vocal melody: sung syllables leave many short gaps
-DRUM_BEATS = 1.0                   # a drum hit is written at most this long
 GHOST_VELOCITY = 0.55              # notes softer than this x the track's 95th-percentile velocity are dropped
 OVERTONES = (12, 19, 24, 28, 31)   # harmonics 2-6, in semitones above the note
 OVERTONE_RATIO = 0.8               # an overtone ghost is at most this loud relative to the note under it
@@ -70,6 +74,7 @@ W_MOVE = 1.0                       # cost per fret the hand moves, divided by (1
 W_POSITION = 0.03                  # cost per fret of hand position per chord (a tie-break towards low positions)
 W_CROSS = 1.0                      # cost per pair of chord notes whose strings are in the opposite order
 MAX_FINGERINGS = 256               # enough for any chord within a hand span; caps big notation-only chords
+GP5_ENCODING = "cp1252"            # what Guitar Pro 5 itself writes; all text in the .gp5 is ASCII anyway
 
 GUITAR = (64, 59, 55, 50, 45, 40)            # string 1 (high E4) to string 6 (low E2)
 BASS = (43, 38, 33, 28)                      # G2 D2 A1 E1
@@ -186,7 +191,8 @@ def unit_at(tick, grid):
 
 def chord_groups(notes, knots, grid, total, drums=False, legato=LEGATO_BEATS):
     """Notes -> [[start tick, end tick, {pitch: velocity}]]: notes on the same snapped onset form one chord,
-    which lasts until the next onset (drums: at most DRUM_BEATS), gaps under legato beats closed."""
+    which lasts until the next onset (drums: at most to the end of their beat, so drum parts have no ties),
+    gaps under legato beats closed."""
     if not notes:
         return []
     starts, ends, pitches, velocities = (np.array(c) for c in zip(*notes))
@@ -202,8 +208,8 @@ def chord_groups(notes, knots, grid, total, drums=False, legato=LEGATO_BEATS):
     out = sorted(groups.values())
     for i, g in enumerate(out):
         nxt = out[i + 1][0] if i + 1 < len(out) else total
-        end = min(nxt, g[0] + round(DRUM_BEATS * TICKS)) if drums else min(g[1], nxt)
-        if nxt - end < legato * TICKS:
+        end = min(nxt, (g[0] // TICKS + 1) * TICKS) if drums else min(g[1], nxt)
+        if nxt - end < legato * TICKS and not drums:
             end = nxt
         end = snap_ticks_down(end, grid)
         g[1] = max(end, min(g[0] + unit_at(g[0], grid), nxt))
@@ -457,7 +463,7 @@ def fill_track(track, groups, played, grid, chords, tempos, bars):
     cuts |= {k * TICKS for k in triplet_beats} | {(k + 1) * TICKS for k in triplet_beats}
     cuts = sorted(c for c in cuts if 0 < c < total)
     bar_starts = [b * TICKS for b, _ in bars]
-    tempo_ticks = {bars[i][0] * TICKS: bpm for i, bpm in tempos.items()} if tempos else {}
+    tempo_ticks = {bars[i][0] * TICKS: bpm for i, bpm in tempos.items() if i} if tempos else {}  # bar 1: song tempo
     written = 0
     for a, b, notes in segments:
         edges = [a] + [c for c in cuts[np.searchsorted(cuts, a, side="right"):np.searchsorted(cuts, b)]] + [b]
@@ -492,8 +498,27 @@ def split_name(name):
     return (title.strip(), artist.strip()) if sep else (name, "")
 
 
-def safe_text(text, encoding):
-    return text.encode(encoding, errors="replace").decode(encoding)
+PUNCTUATION = str.maketrans({"–": "-", "—": "-", "‘": "'", "’": "'", "“": '"', "”": '"', "…": "...", "·": "-",
+                             "、": ",", "《": '"', "》": '"', "【": "[", "】": "]"})
+
+
+def ascii_text(text):
+    """Text a .gp5 can hold: Chinese as capitalised pinyin, left out where the Latin text next to it already spells
+    it (想想XiangXiang -> XiangXiang); accents and anything else that is not ASCII dropped."""
+    parts = re.split(r"([\u3400-\u9fff\uf900-\ufaff]+)", text)   # Latin, Chinese, Latin, ...
+    words = []
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            words.append(part.strip())
+            continue
+        pinyin = lazy_pinyin(part)
+        latin = re.sub(r"\s+", "", "".join(parts[i - 1:i + 2:2])).lower()
+        if "".join(pinyin).lower() not in latin:
+            words.append(" ".join(p.capitalize() for p in pinyin))
+    text = unicodedata.normalize("NFKD", " ".join(w for w in words if w).translate(PUNCTUATION))
+    text = "".join(c for c in text if not unicodedata.combining(c)).encode("ascii", errors="ignore").decode()
+    text = re.sub(r"([(\[]) +| +([)\],.!?:;])", r"\1\2", text)   # no space inside brackets or before commas
+    return re.sub(r" {2,}", " ", text).strip()
 
 
 def read_notes(song_dir):
@@ -517,7 +542,7 @@ def song_bars(analysis, stems):
     return knots, tempo_note, bar_list(signatures, float(seconds_to_beats(max(duration, last_note), knots)))
 
 
-def build_song(song_dir, analysis, stems, encoding):
+def build_song(song_dir, analysis, stems):
     """(gp.Song, report): every track laid out on the analysis beat grid. report has per-track counts."""
     knots, tempo_note, bars = song_bars(analysis, stems)
     total = (bars[-1][0] + bars[-1][1]) * TICKS
@@ -528,10 +553,9 @@ def build_song(song_dir, analysis, stems, encoding):
     title, artist = split_name(song_dir.name)
     tempo_info = (analysis or {}).get("tempo") or {}
     key_text = ((analysis or {}).get("key") or {}).get("label_en")
-    subtitle = " · ".join(filter(None, [key_text and f"Key: {key_text}",
-                                        tempo_info.get("bpm") and f"{tempo_info['bpm']:g} BPM"]))
-    song = gp.Song(title=safe_text(title, encoding), artist=safe_text(artist, encoding),
-                   subtitle=safe_text(subtitle, encoding),
+    subtitle = ", ".join(filter(None, [key_text and f"Key: {key_text}",
+                                       tempo_info.get("bpm") and f"{tempo_info['bpm']:g} BPM"]))
+    song = gp.Song(title=ascii_text(title), artist=ascii_text(artist), subtitle=subtitle,
                    tab="OpenMusic (automatic draft)",
                    instructions="Automatic transcription: a draft to check by ear."
                                 + (" Bar 1 is a pickup (bar 0 in the OpenMusic player)."
@@ -546,7 +570,8 @@ def build_song(song_dir, analysis, stems, encoding):
         start += n * TICKS
 
     report = {"bars": len(bars), "tempo": tempos[0], "tempo_changes": len(tempos) - 1, "tracks": {},
-              "key": key_text, "chords": len(chords)}
+              "key": key_text, "chords": len(chords), "title": title, "artist": artist,
+              "signatures": [n for _, n in bars]}
     notice = [f"Bars and beats: {tempo_note}.",
               "Rhythm on a grid of 16ths and 8th-note triplets; ghost and overtone notes dropped."]
     for stem in [s for s in ORDER if s in stems]:
@@ -586,13 +611,13 @@ def build_song(song_dir, analysis, stems, encoding):
         notice.append(f"{settings['name']}: {method}"[:250])
     if not song.tracks:
         return None, report
-    song.notice = [safe_text(line, encoding) for line in notice]
+    song.notice = [ascii_text(line) for line in notice]
     return song, report
 
 
-def check(path, encoding, report):
-    """Read the file back with PyGuitarPro: bar count, tempo, full bars, note counts as written."""
-    song = gp.parse(str(path), encoding=encoding)
+def check(path, report):
+    """Read the .gp5 back with PyGuitarPro: bar count, tempo, full bars, note counts as written."""
+    song = gp.parse(str(path), encoding=GP5_ENCODING)
     problems = []
     if len(song.measureHeaders) != report["bars"]:
         problems.append(f"{len(song.measureHeaders)} bars, expected {report['bars']}")
@@ -611,33 +636,53 @@ def check(path, encoding, report):
     return problems
 
 
+def check_gp(data, report):
+    """Read the .gp back with alphaTab: title and artist in full, bars, time signatures, tempo, tracks, notes."""
+    got = gp7.summary(data)
+    problems = []
+    for key in ("title", "artist", "tempo", "signatures"):
+        if got[key] != report[key]:
+            problems.append(f"{key} {got[key]!r}, expected {report[key]!r}")
+    written = {r["name"]: r["notes"] for r in report["tracks"].values() if "notes" in r}
+    read = {t["name"]: t["notes"] for t in got["tracks"]}
+    if read != written:
+        problems.append(f"notes per track {read}, written {written}")
+    return problems
+
+
 def up_to_date(out, inputs):
     return out.exists() and out.stat().st_mtime > max(p.stat().st_mtime for p in inputs if p.exists())
 
 
-def export_song(song_dir, encoding, force=False):
+def export_song(song_dir, force=False):
     tdir = song_dir / "transcription"
-    out = tdir / f"{song_dir.name}.gp5"
+    out, out5 = tdir / f"{song_dir.name}.gp", tdir / f"{song_dir.name}.gp5"
     inputs = list(tdir.glob("*.notes.json")) + [tdir / "drums.mid", song_dir / "analysis.json"]
-    if not force and up_to_date(out, inputs):
-        print(f"{song_dir.name}: {out.name} is up to date (use --force to redo)")
+    if not force and up_to_date(out, inputs) and up_to_date(out5, inputs):
+        print(f"{song_dir.name}: {out.name} and .gp5 are up to date (use --force to redo)")
         return True
     start = time.perf_counter()
     stems = read_notes(song_dir)
-    song, report = build_song(song_dir, read_analysis(song_dir), stems, encoding)
+    song, report = build_song(song_dir, read_analysis(song_dir), stems)
     if song is None:
         print(f"{song_dir.name}: nothing to write ({report['tracks']})")
         out.unlink(missing_ok=True)
+        out5.unlink(missing_ok=True)
         return False
-    tmp = out.with_suffix(".gp5.tmp")
-    gp.write(song, str(tmp), version=(5, 1, 0), encoding=encoding)
-    problems = check(tmp, encoding, report)
+    tmp5 = out5.with_suffix(".gp5.tmp")
+    gp.write(song, str(tmp5), version=(5, 1, 0), encoding=GP5_ENCODING)
+    problems = check(tmp5, report)
+    data = gp7.to_gp(tmp5.read_bytes(), {"title": report["title"], "artist": report["artist"]})
+    problems += [f".gp: {p}" for p in check_gp(data, report)]
     if problems:
-        tmp.unlink(missing_ok=True)
+        tmp5.unlink(missing_ok=True)
         raise SystemExit(f"{song_dir.name}: the written file does not read back right: {'; '.join(problems)}")
+    tmp = out.with_suffix(".gp.tmp")
+    tmp.write_bytes(data)
+    tmp5.replace(out5)
     tmp.replace(out)
     changes = f" ({report['tempo_changes']} tempo changes)" if report["tempo_changes"] else ""
-    print(f"{song_dir.name}: {out.name}, {report['bars']} bars, {report['tempo']} BPM{changes}, "
+    print(f"{song_dir.name}: {out.name} + .gp5, {report['bars']} bars, {report['tempo']} BPM{changes}, "
           f"key {report['key'] or '?'}, {report['chords']} chord symbols, {time.perf_counter() - start:.1f} s")
     for stem, r in report["tracks"].items():
         if "skipped" in r:
@@ -655,10 +700,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("stems_root", type=Path)
     parser.add_argument("--song", help="only this song folder")
-    parser.add_argument("--force", action="store_true", help="redo songs whose .gp5 is up to date")
-    default_encoding = getattr(locale, "getencoding", lambda: locale.getpreferredencoding(False))()
-    parser.add_argument("--encoding", default=default_encoding,
-                        help="text encoding of the title in the file (default: this computer's, %(default)s)")
+    parser.add_argument("--force", action="store_true", help="redo songs whose .gp and .gp5 are up to date")
     args = parser.parse_args()
     if not args.stems_root.is_dir():
         raise SystemExit(f"no such folder: {args.stems_root}")
@@ -668,9 +710,9 @@ def main():
     song_dirs = [p for p in song_dirs if any((p / "transcription").glob("*.notes.json"))]
     if not song_dirs:
         raise SystemExit(f"no transcribed song under {args.stems_root} (run transcribe.py first)")
-    print(f"PyGuitarPro {version('PyGuitarPro')}, text encoding {args.encoding}")
+    print(f"PyGuitarPro {version('PyGuitarPro')}, alphaTab {gp7.VERSION} on mini-racer {version('mini-racer')}")
     for song_dir in song_dirs:
-        export_song(song_dir, args.encoding, args.force)
+        export_song(song_dir, args.force)
 
 
 if __name__ == "__main__":

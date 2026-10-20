@@ -141,7 +141,7 @@ def song_status(key, name, sources):
     # A step is done only if its output is newer than the stems (a re-split makes analysis and MIDI stale).
     an_ok = bool(analysis and "error" not in analysis) and path.stat().st_mtime >= stems_t
     tr_ok = tdir.is_dir() and mtime([tdir]) >= stems_t and (not mids or min(p.stat().st_mtime for p in mids) >= stems_t)
-    gp_file = tdir / f"{name}.gp5"
+    gp_file, gp5_file = tdir / f"{name}.gp", tdir / f"{name}.gp5"   # Guitar Pro 7/8, and 5 for older versions
     gp_inputs = list(tdir.glob("*.notes.json")) * tdir.is_dir() + mids + [path] * path.exists()
     gp_ok = tr_ok and (gp_file.exists() and gp_file.stat().st_mtime >= mtime(gp_inputs) or not mids)
     player = lib["root"] / "player.html"
@@ -161,6 +161,7 @@ def song_status(key, name, sources):
             "analysis": analysis, "midi": [p.stem for p in mids],
             "midi_urls": {p.stem: f"/{rel}/{quote(name)}/transcription/{quote(p.name)}" for p in mids},
             "gp_url": f"/{rel}/{quote(name)}/transcription/{quote(gp_file.name)}" if gp_file.exists() else None,
+            "gp5_url": f"/{rel}/{quote(name)}/transcription/{quote(gp5_file.name)}" if gp5_file.exists() else None,
             "player": player_state,
             "player_url": f"/{rel}/player.html?song={quote(name)}&from=workbench" if stems and player.exists() else None,
             "split_stale": bool(stems) and not split_ok,
@@ -576,7 +577,7 @@ gpunote:'这台电脑没有 NVIDIA 显卡：不建议在这里用 RoFormer 分�
 gpuwarn:'这台电脑没有 NVIDIA 显卡：RoFormer 会很慢，还可能占用 6 GB 以上内存让电脑卡住，建议在显卡电脑上跑。仍要继续吗？',
 all:'一键处理',practise:'去练习',redo:'重做',run:'运行',open:'打开',none:'这里还没有歌。先在上面添加一首。',nosrc:'没有原始音频',
 st_ok:'完成',st_todo:'未做',st_run:'进行中',st_queued:'排队中',st_bad:'失败',st_stale:'需更新',
-stems:'{n} 轨',midi:'{n} 轨：',gp:'下载 Guitar Pro',gp_title:'整首歌的 Guitar Pro 谱：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名',model_unknown:'模型未知',conf:'把握 {p}%',idle:'现在没有任务在跑。',cancel:'停止',queue:'排队中：',recent:'最近：',
+stems:'{n} 轨',midi:'{n} 轨：',gp:'下载 Guitar Pro',gp_title:'整首歌的 Guitar Pro 谱（.gp，Guitar Pro 7、8 用）：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名',gp5:'.gp5（旧版）',gp5_title:'同一份谱，给 Guitar Pro 5、6 用；这种格式存不了中文，标题写成拼音',model_unknown:'模型未知',conf:'把握 {p}%',idle:'现在没有任务在跑。',cancel:'停止',queue:'排队中：',recent:'最近：',
 step_split:'分轨',step_analyze:'分析',step_transcribe:'扒谱',step_gp:'生成 Guitar Pro 谱',step_player:'生成播放器',elapsed:'已用 {s} 秒',
 j_done:'完成',j_failed:'失败',j_cancelled:'已停止',j_skipped:'跳过（前一步没成功）',showlog:'查看日志',
 up_busy:'正在添加：{n} …',up_ok:'已添加：{n}',up_exists:'{n} 已经在 songs/ 里了，要覆盖吗？',up_bad:'不支持这个文件类型：{n}（可以用 mp3、wav、flac、m4a、aac、ogg）',
@@ -592,7 +593,7 @@ gpunote:'This computer has no NVIDIA GPU: splitting with RoFormer here is not re
 gpuwarn:'This computer has no NVIDIA GPU: RoFormer will be slow and may use over 6 GB of memory and freeze the computer. Running it on a GPU machine is recommended. Continue anyway?',
 all:'Process all',practise:'Practise',redo:'Redo',run:'Run',open:'Open',none:'No songs here yet. Add one above first.',nosrc:'no source audio',
 st_ok:'done',st_todo:'not yet',st_run:'running',st_queued:'queued',st_bad:'failed',st_stale:'needs update',
-stems:'{n} stems',midi:'{n} stems: ',gp:'Download Guitar Pro',gp_title:'The whole song as one Guitar Pro file: every stem a track, tab for guitar and bass, chord names above',model_unknown:'model unknown',conf:'{p}% sure',idle:'No job is running.',cancel:'Stop',queue:'Queued: ',recent:'Recent:',
+stems:'{n} stems',midi:'{n} stems: ',gp:'Download Guitar Pro',gp_title:'The whole song as one Guitar Pro file (.gp, for Guitar Pro 7 and 8): every stem a track, tab for guitar and bass, chord names above',gp5:'.gp5 (older versions)',gp5_title:'The same score for Guitar Pro 5 and 6; that format cannot hold Chinese, so the title is in pinyin',model_unknown:'model unknown',conf:'{p}% sure',idle:'No job is running.',cancel:'Stop',queue:'Queued: ',recent:'Recent:',
 step_split:'split',step_analyze:'analyze',step_transcribe:'transcribe',step_gp:'Guitar Pro export',step_player:'build player',elapsed:'{s} s so far',
 j_done:'done',j_failed:'failed',j_cancelled:'stopped',j_skipped:'skipped (previous step failed)',showlog:'show log',
 up_busy:'Adding {n} …',up_ok:'Added: {n}',up_exists:'{n} is already in songs/. Overwrite it?',up_bad:'Unsupported file type: {n} (use mp3, wav, flac, m4a, aac or ogg)',
@@ -630,7 +631,7 @@ function render(){if(!S)return;const L=S.libraries;const tabs=document.getElemen
   const btn=(step,label,en)=>`<button class=act data-song="${esc(s.name)}" data-step=${step} ${en&&!busy?'':'disabled'}>${label}</button>`;
   const allDone=d.split&&d.analyze&&d.transcribe&&d.gp&&d.player;
   const midi=(s.midi.length?t('midi',{n:s.midi.length})+s.midi.map(m=>`<a href="${esc(s.midi_urls[m])}" download>${esc(STEM[lang][m]||m)}</a>`).join(lang==='zh'?'、':', '):'')
-   +(s.gp_url?`<div><a href="${esc(s.gp_url)}" download title="${esc(t('gp_title'))}">⬇ ${t('gp')}</a></div>`:'');
+   +(s.gp_url?`<div><a href="${esc(s.gp_url)}" download title="${esc(t('gp_title'))}">⬇ ${t('gp')}</a>${s.gp5_url?` · <a href="${esc(s.gp5_url)}" download title="${esc(t('gp5_title'))}">${t('gp5')}</a>`:''}</div>`:'');
   const gpRun=lastRun(s.name,'gp'),trRun=lastRun(s.name,'transcribe');
   const midiStep=jobFor(s.name,'transcribe')?'transcribe':jobFor(s.name,'gp')||(gpRun&&gpRun.status==='failed'&&!(trRun&&trRun.status==='failed'))?'gp':'transcribe';
   const last=allDone&&!busy?`<a class="act primary" href="${playerHref(s)}">${t('practise')} →</a>`

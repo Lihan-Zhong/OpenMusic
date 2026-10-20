@@ -10,18 +10,23 @@ run high on the neck, 16ths, an 8th-note triplet, a power chord, and ghost notes
 range); a bass line; a vocal melody; an arpeggio on "other"; a few notes on "piano" (too few: skipped); and a
 drums.mid. The .gp5 is read back with PyGuitarPro and every note must be on its beat with its pitch, the ghosts
 gone, the chord shapes the ones a guitarist would use, no fretted stretch wider than the track allows, and the
-triplet written as one. A few small cases test the rhythm grid, the note values and the clean-up on their own.
+triplet written as one; its title must be plain ASCII (pinyin). The .gp is read back with alphaTab (same
+title in Chinese, tracks, bars, time signatures, tempo and notes as the .gp5) and its score.gpif XML with
+Python's own parser (title, bars, tracks, chord names without diagrams, tempo changes as steps). A few small
+cases test the rhythm grid, the note values, the clean-up and the ASCII titles on their own.
 Exits with status 1 on any failure.
 
---songs checks every <song>/transcription/<song>.gp5 under a stems folder: it reads back, has the bars and time
-signatures of the song's tempo map (so bar N matches the MIDI and the player), full bars, notes on distinct
-strings within the track's frets and hand span, and a drum track exactly when drums.mid exists.
+--songs checks every <song>/transcription/<song>.gp5 and .gp under a stems folder: they read back, have the bars
+and time signatures of the song's tempo map (so bar N matches the MIDI and the player), full bars, notes on
+distinct strings within the track's frets and hand span, a drum track exactly when drums.mid exists, the same
+notes in both files, and the song's real title in the .gp.
 """
 import argparse
 import json
-import locale
 import shutil
 import sys
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import guitarpro as gp
@@ -30,12 +35,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import export_gp  # noqa: E402
+import gp7  # noqa: E402
 from common import OUTPUTS  # noqa: E402
 from transcribe import read_analysis  # noqa: E402
 
 TEST_ROOT = OUTPUTS / "_export_gp_test"
 SONG = "Test Band - 测试歌"
-ENCODING = "utf-8"
+ENCODING = export_gp.GP5_ENCODING
 RNG = np.random.default_rng(0)
 JITTER_S = 0.02
 TICKS = export_gp.TICKS
@@ -237,6 +243,10 @@ def check_units():
     kept, quiet, overtones = export_gp.drop_ghosts(notes, polyphonic=True)
     expect((quiet, overtones) == (1, 1) and [n[2] for n in kept] == [45, 64],
            f"ghosts: kept {[n[2] for n in kept]}, {quiet} soft, {overtones} overtone")
+    for text, ascii in (("想想XiangXiang", "XiangXiang"), ("第二张专辑的intro", "Di Er Zhang Zhuan Ji De intro"),
+                        ("中南海", "Zhong Nan Hai"), ("Björk – Jóga", "Bjork - Joga"),
+                        ("测试歌（现场版）", "Ce Shi Ge (Xian Chang Ban)")):
+        expect(export_gp.ascii_text(text) == ascii, f"ASCII title of {text}: {export_gp.ascii_text(text)!r}")
     bass = [(i, i + 0.5, 26 if i % 3 == 0 else 33, 90) for i in range(30)]
     strings, drop_d = export_gp.tuning(bass, export_gp.TRACKS["bass"])
     expect(drop_d and strings == (43, 38, 33, 26), f"bass with low Ds: tuning {strings}")
@@ -247,11 +257,11 @@ def check_units():
 def check_song():
     print(f"synthetic song: {TEST_ROOT / SONG}")
     song_dir, parts, drum_want = write_song()
-    expect(export_gp.export_song(song_dir, ENCODING, force=True), "export_song wrote nothing")
+    expect(export_gp.export_song(song_dir, force=True), "export_song wrote nothing")
     path = song_dir / "transcription" / f"{SONG}.gp5"
     song = gp.parse(str(path), encoding=ENCODING)
 
-    expect((song.title, song.artist) == ("测试歌", "Test Band"), f"title / artist: {song.title!r} / {song.artist!r}")
+    expect((song.title, song.artist) == ("Ce Shi Ge", "Test Band"), f"title / artist: {song.title!r} / {song.artist!r}")
     key = song.measureHeaders[0].keySignature   # the song-level key of a GP5 file has no major / minor
     expect(key == gp.KeySignature.AMinor and song.key.value[0] == 0, f"key {key}")
     expect("pickup" in song.instructions, f"instructions should mention the pickup: {song.instructions!r}")
@@ -271,6 +281,8 @@ def check_song():
     got = struck(tracks["Drums"])
     expect(got == drum_want, f"drums: missing {sorted(drum_want - got)[:6]}, extra {sorted(got - drum_want)[:6]}")
     expect(tracks["Drums"].isPercussionTrack and tracks["Drums"].channel.channel == 9, "drums on MIDI channel 10")
+    expect(not any(n.type == gp.NoteType.tie for _, b in track_beats(tracks["Drums"]) for n in b.notes),
+           "drum hits should never be tied")
 
     for name, frets, span in (("Guitar", 22, 4), ("Bass", 20, 3)):
         problems = fingering_problems(tracks[name], frets, span)
@@ -298,17 +310,57 @@ def check_song():
     chords = {t // TICKS: b.effect.chord.name for t, b in track_beats(tracks["Guitar"]) if b.effect.chord}
     expect(chords == EXPECTED_CHORDS, f"chord symbols {chords}, expected {EXPECTED_CHORDS}")
     expect(not any(b.effect.chord for _, b in track_beats(tracks["Drums"])), "no chord symbols on drums")
+    check_gp_file(path.with_suffix(".gp"), song, ("测试歌", "Test Band"))
     return path
 
 
+def check_gp_file(path, song5, title_artist):
+    """The .gp next to a .gp5: alphaTab reads the real title and artist and the same bars, tempo, tracks and
+    notes; its score.gpif, parsed here independently, has the title, the bars, chord names without diagrams
+    and tempo changes as steps."""
+    name = path.parent.parent.name
+    if not expect(path.is_file(), f"{name}: no .gp"):
+        return
+    got = gp7.summary(path.read_bytes())
+    expect((got["title"], got["artist"]) == title_artist, f"{name}: .gp title / artist {got['title']!r} / {got['artist']!r}")
+    expect(got["signatures"] == [h.timeSignature.numerator for h in song5.measureHeaders], f"{name}: .gp bars")
+    expect(got["tempo"] == song5.tempo, f"{name}: .gp tempo {got['tempo']}, .gp5 {song5.tempo}")
+    want = [(t.name, sum(n.type == gp.NoteType.normal for _, b in track_beats(t) for n in b.notes),
+             t.isPercussionTrack, t.settings.tablature) for t in song5.tracks]
+    have = [(t["name"], t["notes"], t["percussion"], t["tab"]) for t in got["tracks"]]
+    expect(have == want, f"{name}: .gp tracks (name, notes, drums, tab) {have}, .gp5 {want}")
+    for t5, t in zip(song5.tracks, got["tracks"]):
+        if t5.isPercussionTrack:
+            keys = {}
+            for _, b in track_beats(t5):
+                for n in b.notes:
+                    if n.type == gp.NoteType.normal:
+                        keys[str(n.value)] = keys.get(str(n.value), 0) + 1
+            expect(t["kit"] == keys, f"{name}: .gp drum pieces {t['kit']}, .gp5 {keys}")
+
+    with zipfile.ZipFile(path) as z:
+        expect(z.read("VERSION") == b"7.0", f"{name}: .gp VERSION {z.read('VERSION')!r}")
+        root = ET.fromstring(z.read("Content/score.gpif"))
+    expect(root.findtext("Score/Title") == title_artist[0], f"{name}: gpif title {root.findtext('Score/Title')!r}")
+    expect(len(root.findall("MasterBars/MasterBar")) == len(song5.measureHeaders), f"{name}: gpif bars")
+    expect([t.findtext("Name") for t in root.findall("Tracks/Track")] == [t.name for t in song5.tracks],
+           f"{name}: gpif tracks")
+    shown = {e.get("value") for e in root.iter("Property") if e.get("name") == "ShowDiagram"}
+    expect(shown <= {"false"}, f"{name}: chord diagrams shown: {shown}")
+    tempos = [a for a in root.findall("MasterTrack/Automations/Automation") if a.findtext("Type") == "Tempo"]
+    expect(all(a.findtext("Linear") == "false" for a in tempos) and [a.findtext("Bar") for a in tempos].count("0") == 1,
+           f"{name}: tempo changes should be steps, bar 1 marked once")
+
+
 def check_songs(stems_root):
-    """Every exported .gp5 under stems_root against its song's tempo map; prints what is in each."""
-    encoding = getattr(locale, "getencoding", lambda: locale.getpreferredencoding(False))()
+    """Every exported .gp5 and .gp under stems_root against its song's tempo map; prints what is in each."""
     paths = sorted(p for p in Path(stems_root).glob("*/transcription/*.gp5") if p.stem == p.parent.parent.name)
     expect(paths, f"no exported .gp5 under {stems_root}")
     for path in paths:
         song_dir = path.parent.parent
-        song = gp.parse(str(path), encoding=encoding)
+        song = gp.parse(str(path), encoding=ENCODING)
+        expect(song.title.isascii() and song.artist.isascii(), f"{song_dir.name}: .gp5 text should be ASCII")
+        check_gp_file(path.with_suffix(".gp"), song, export_gp.split_name(song_dir.name))
         _, _, bars = export_gp.song_bars(read_analysis(song_dir), export_gp.read_notes(song_dir))
         got = [h.timeSignature.numerator for h in song.measureHeaders]
         expect(got == [n for _, n in bars], f"{song_dir.name}: bars differ from the tempo map")
@@ -317,7 +369,7 @@ def check_songs(stems_root):
         n_chords = 0
         print(f"{song_dir.name}: {len(song.measureHeaders)} bars, {song.tempo} BPM, "
               f"key {song.measureHeaders[0].keySignature.name}, "
-              f"title {song.title!r}")
+              f".gp5 title {song.title!r} by {song.artist!r}")
         for track in song.tracks:
             spec = export_gp.TRACKS.get(track.name.split(" ")[0].lower(), {})
             for measure in track.measures:

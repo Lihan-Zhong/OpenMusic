@@ -63,7 +63,12 @@
 
 ## Guitar Pro 谱
 
-转完 MIDI 后，工作台会接着生成 `<歌名>/transcription/<歌名>.gp5`，不用再一轨一轨导入 MIDI、再手动整理。工作台的 MIDI 一栏和练习播放器（钢琴卷帘下面）都有「下载 Guitar Pro」。Guitar Pro 5 及以后的版本、TuxGuitar、MuseScore 都能打开。
+转完 MIDI 后，工作台会接着生成整首歌的谱，不用再一轨一轨导入 MIDI、再手动整理：
+
+- `<歌名>/transcription/<歌名>.gp`：Guitar Pro 7、8 的格式，默认下载，中文歌名正常显示。
+- `<歌名>/transcription/<歌名>.gp5`：同一份谱，给 Guitar Pro 5、6 等旧版本用。这种格式存不了中文（Guitar Pro 用单字节编码读它的文字，Mac 上也一样），所以里面的歌名、艺人写成拼音，例如「Zhong Nan Hai」。
+
+工作台的 MIDI 一栏和练习播放器（钢琴卷帘下面）都有「下载 Guitar Pro」，旁边是「.gp5（旧版）」。
 
 - **音轨**：吉他（6 弦标准调弦，六线谱 + 五线谱）、贝斯（4 弦，六线谱 + 五线谱）、人声旋律（只有五线谱）；钢琴、其他轨要有足够多的音才放进去；有鼓的扒谱（`transcription/drums.mid`）时再加一条鼓轨。
 - **小节**：和 MIDI、播放器用同一套拍子和小节线，拍号按每小节识别出的拍数写。歌曲开头不满一小节（弱起）时，它在 Guitar Pro 里是第 1 小节，在播放器里叫第 0 小节，所以后面的小节号比播放器大 1。Guitar Pro 同一时间只能记一个整数速度，谱上写的是每小节的速度，变化超过 3% 才标新速度，所以在 Guitar Pro 里播放只是接近原曲，不和录音严格同步。
@@ -71,7 +76,8 @@
 - **品位**：给每个和弦找出所有能按的指法（每根弦一个音，按弦的手指跨度吉他不超过 4 品、贝斯不超过 3 品），再用动态规划选出整首歌左手移动最少的一条路线，其次偏向低把位和常见的和弦形状。实在按不下的音，去掉最轻的。低音 D 很多时改用 Drop D 调弦。
 - **清理**：去掉力度不到这一轨较响音符（95 百分位）55% 的轻音；吉他、钢琴、其他轨还去掉泛音造成的"鬼音"：比同时响着的另一个音高八度、十二度、两个八度……而且更轻的音。
 - **和弦名、调、标题**：分析出的和弦名写在谱表上方；歌名、艺人、调、速度写在文件信息里。
-- 这仍然是草稿：贝斯最准，吉他比较密，要靠耳朵核对。Guitar Pro 5 格式没有规定文字编码，Guitar Pro 按电脑系统的编码读，所以中文歌名默认按本机编码写（Mac 是 UTF-8，中文 Windows 是 GBK）；要在另一台电脑上打开、标题显示成乱码时，用 `--encoding gbk` 或 `--encoding utf-8` 重新生成。文件名总是对的，音轨名和和弦名都是英文字母，不受影响。
+- 这仍然是草稿：贝斯最准，吉他比较密，要靠耳朵核对。文件名总是原来的中文歌名；音轨名和和弦名都是英文字母。
+- 做法：先用 PyGuitarPro 写出 .gp5 并读回检查，再用 alphaTab（收录在 `experiments/vendor/alphatab/`，通过 mini-racer 在 Python 里运行，不需要 Node.js 或浏览器）转成 .gp，填回中文歌名，同样读回检查。
 
 单独运行：`.venv/bin/python experiments/export_gp.py outputs/mp3 --song "歌名"`。
 
@@ -122,10 +128,11 @@ experiments/
   build_page.py       生成对比试听页 compare.html（中文）和 compare.en.html（英文）
   analyze.py          识别速度（拍子、小节）、调式、和弦，写 analysis.json
   transcribe.py       每轨转 MIDI 和音符列表（transcription/）
-  export_gp.py        把各轨扒谱合成一个 Guitar Pro 谱（transcription/<歌名>.gp5）
+  export_gp.py        把各轨扒谱合成一个 Guitar Pro 谱（transcription/<歌名>.gp，旧版用的 .gp5）
+  gp7.py              用 alphaTab 把 .gp5 转成 Guitar Pro 7/8 的 .gp，并读回检查
   build_player.py     生成练习播放器 player.html（中文）和 player.en.html（英文）
   tests/              分析、转谱、Guitar Pro 导出、播放器的自动测试
-  vendor/             直接收录的第三方代码（各自带 LICENSE）：Signalsmith Stretch、wavesurfer.js、S-KEY
+  vendor/             直接收录的第三方代码（各自带 LICENSE）：Signalsmith Stretch、wavesurfer.js、S-KEY、alphaTab
   methods/            3 轨方法：每个文件一个 separate(mix, sr)
   methods_multi/      多轨 AI 模型：demucs4、demucs6、roformer_sw
 results/              每个方法的分数（JSON）和实验说明 method_info.json
@@ -176,7 +183,7 @@ python -m venv .venv
 - MUSDB18 数据只能用于非商业的教育和学术用途，所以不放进仓库。`*_stats.npz` 和 `experiments/methods/stereo.py` 里的增益表，是从它的训练集统计出来的少量参数，适用 MUSDB18 的条款，不属于 AGPL 范围。
 - Demucs 的模型权重不在 MIT 协议范围内，作者说明“仅供科学研究用途”（facebookresearch/demucs#327）。BS-RoFormer-SW 是社区流传的权重，训练者和协议都不明。个人练习可以，不要拿去商用。
 - 不要把别人的歌或分好的音轨提交进仓库。
-- `experiments/vendor/` 里收录的第三方代码保留各自的协议（MIT / BSD-3-Clause），见各目录的 LICENSE。S-KEY 只能从仓库里收录的这份用，**不要** `pip install skey`，那是一个不相干的同名包。
+- `experiments/vendor/` 里收录的第三方代码保留各自的协议（MIT / BSD-3-Clause / MPL-2.0），见各目录的 LICENSE。S-KEY 只能从仓库里收录的这份用，**不要** `pip install skey`，那是一个不相干的同名包。
 
 ## 致谢
 
@@ -211,7 +218,9 @@ python -m venv .venv
 - [S-KEY](https://github.com/deezer/skey)（Deezer，ICASSP 2025，MIT）：调式识别模型，收录在 `experiments/vendor/skey/`；依赖 [nnAudio](https://github.com/KinWaiCheuk/nnAudio)（MIT）。
 - 调式模板数据取自 [Essentia](https://github.com/MTG/essentia) 的 key.cpp（AGPL-3.0）；和弦识别的模板 + Viterbi 做法参照 librosa 文档里的示例。
 - [Basic Pitch](https://github.com/spotify/basic-pitch)（Spotify，ICASSP 2022，Apache-2.0）：转 MIDI，用 [ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT）运行；MIDI 读写用 [pretty_midi](https://github.com/craffel/pretty-midi)（MIT）和 [mido](https://github.com/mido/mido)（MIT），评测用 [mir_eval](https://github.com/mir-evaluation/mir_eval)（MIT），重采样用 [resampy](https://github.com/bmcfee/resampy)（ISC）。
-- [PyGuitarPro](https://github.com/Perlence/PyGuitarPro)（Sviatoslav Abakumov，LGPL-3.0）：写入和读回 Guitar Pro 文件；它依赖 [attrs](https://github.com/python-attrs/attrs)（MIT）。
+- [PyGuitarPro](https://github.com/Perlence/PyGuitarPro)（Sviatoslav Abakumov，LGPL-3.0）：写入和读回 Guitar Pro 5 文件；它依赖 [attrs](https://github.com/python-attrs/attrs)（MIT）。
+- [alphaTab](https://github.com/CoderLine/alphaTab)（Daniel Kuschny 等，MPL-2.0）：把 Guitar Pro 5 文件转成 Guitar Pro 7/8 的 .gp，并读回检查；收录的是 1.8.4 版，未修改，见 `experiments/vendor/alphatab/README.md`。它在 [mini-racer](https://github.com/bpcreech/PyMiniRacer)（ISC，内含 [V8](https://v8.dev)，BSD-3-Clause）里运行。
+- [pypinyin](https://github.com/mozillazg/python-pinyin)（MIT）：.gp5 里的中文歌名写成拼音。
 - [Playwright](https://github.com/microsoft/playwright-python)（Apache-2.0）：只用于播放器的自动测试。
 
 **Python 库**
