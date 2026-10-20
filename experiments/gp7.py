@@ -6,12 +6,15 @@ text of the older .gp5 format in a single-byte code page, also on macOS). No mai
 Python (mini-racer, ISC). export_gp.py lays the score out with PyGuitarPro and hands it over as Guitar Pro 5 bytes
 in memory, with UTF-8 text; alphaTab's Guitar Pro 5 importer reads them and its Guitar Pro 7 exporter writes the
 .gp. No .gp5 file is ever written. Chord symbols are names only (no empty diagrams), and tempo changes are steps.
+An audio file can go in as Guitar Pro 8's audio track (alphaTab's backing track: Content/Assets/backing-track in
+the zip), placed by sync points, i.e. where in the audio given bars start. Its bytes are put into the zip here,
+as they are, rather than passed through V8.
 One fix-up after alphaTab: on a drum track it writes each note's General MIDI key where Guitar Pro expects the
 index of the kit piece in the track's drum kit, so the notes are pointed at the piece whose InputMidiNumbers
 hold that key (fix_drums).
 
-    gp_bytes = to_gp(gp5_bytes)
-    dump(gp_bytes)      # what alphaTab reads back: title, bars, and every beat and note of every track
+    gp_bytes = to_gp(gp5_bytes, audio=mp3_bytes, sync=[(0, 0.0), (1, 1000.0), ...])   # (bar index, ms)
+    dump(gp_bytes)      # what alphaTab reads back: title, bars, audio, and every beat and note of every track
 """
 import io
 import json
@@ -74,8 +77,14 @@ globalThis.openmusic = {
     settings.importer.encoding = 'utf-8';
     return alphaTab.importer.ScoreLoader.loadScoreFromBytes(openmusic.bytes(hex), settings);
   },
-  toGp(hex) {
+  toGp(hex, audio, sync) {
     const score = openmusic.load(hex);
+    if (audio) {   // a 1-byte stand-in; gp7.py puts the real file into the zip
+      score.backingTrack = new alphaTab.model.BackingTrack();
+      score.backingTrack.rawAudioFile = new Uint8Array(1);
+      score.applyFlatSyncPoints(sync.map(([bar, ms]) => ({barIndex: bar, barOccurence: 0, barPosition: 0,
+                                                            millisecondOffset: ms})));
+    }
     for (const track of score.tracks)
       for (const staff of track.staves)
         for (const chord of staff.chords?.values() ?? []) { chord.showDiagram = false; chord.showFingering = false; }
@@ -91,7 +100,8 @@ globalThis.openmusic = {
     const score = openmusic.load(hex);
     return JSON.stringify({
       title: score.title, artist: score.artist, subtitle: score.subTitle, instructions: score.instructions,
-      tempo: score.tempo,
+      tempo: score.tempo, backing_track: !!score.backingTrack,
+      sync: score.exportFlatSyncPoints().map(p => [p.barIndex, p.barOccurence, p.barPosition, p.millisecondOffset]),
       bars: score.masterBars.map(m => ({numerator: m.timeSignatureNumerator, denominator: m.timeSignatureDenominator,
                                          key: m.keySignature, minor: m.keySignatureType === 1, ticks: m.calculateDuration(),
                                          tempos: m.tempoAutomations.map(a => [a.value, a.isLinear])})),
@@ -110,6 +120,7 @@ globalThis.openmusic = {
                         })});
         });
         return {name: track.name, percussion: staff.isPercussion, channel: track.playbackInfo.primaryChannel,
+                mute: track.playbackInfo.isMute, solo: track.playbackInfo.isSolo,
                 tab: staff.showTablature,
                 notation: staff.showStandardNotation, tuning: Array.from(staff.stringTuning.tunings),
                 chords_shown: Array.from(staff.chords?.values() ?? []).filter(c => c.showDiagram).length, beats};
@@ -138,22 +149,39 @@ def engine():
     return _ctx
 
 
-def to_gp(gp5):
-    """Guitar Pro 5 bytes (text in UTF-8) -> .gp bytes."""
-    return fix_drums(bytes.fromhex(engine().call("openmusic.toGp", gp5.hex())))
+ASSET = "Content/Assets/backing-track"   # where alphaTab and Guitar Pro 8 keep the audio track's file
 
 
-def fix_drums(data):
-    """Point the notes of drum tracks at their kit piece: alphaTab writes the General MIDI key (42 = closed
-    hi-hat), Guitar Pro reads the index of the articulation in the track's kit (3 for alphaTab's kit)."""
+def to_gp(gp5, audio=None, sync=()):
+    """Guitar Pro 5 bytes (text in UTF-8) -> .gp bytes; with audio (a file's bytes, any format Guitar Pro 8
+    reads), that file as the audio track, placed by sync = [(bar index, ms into the audio where it starts)]."""
+    data = bytes.fromhex(engine().call("openmusic.toGp", gp5.hex(), bool(audio), [list(p) for p in sync]))
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         entries = [(info, z.read(info)) for info in z.infolist()]
-    gpif = next(content for info, content in entries if info.filename == "Content/score.gpif").decode("utf-8")
+    if audio:
+        entries = [(info, audio if info.filename == ASSET else content) for info, content in entries]
+    return rezip(entries, fix_drums)
+
+
+def rezip(entries, edit_gpif=None):
+    """A .gp's bytes from its zip entries [(ZipInfo, bytes)], score.gpif passed through edit_gpif first."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for info, content in entries:
+            if info.filename == "Content/score.gpif" and edit_gpif:
+                content = edit_gpif(content.decode("utf-8")).encode("utf-8")
+            z.writestr(info, content)
+    return out.getvalue()
+
+
+def fix_drums(gpif):
+    """score.gpif with the notes of drum tracks pointed at their kit piece: alphaTab writes the General MIDI
+    key (42 = closed hi-hat), Guitar Pro reads the index of the articulation in the track's kit (3 there)."""
     root = ET.fromstring(gpif)
     tracks = root.findall("Tracks/Track")
     drums = {i: t for i, t in enumerate(tracks) if t.findtext("InstrumentSet/Type") == "drumKit"}
     if not drums:
-        return data
+        return gpif
     ids = lambda parent, tag: {e.get("id"): (e.findtext(tag) or "").split() for e in root.findall(parent)}  # noqa: E731
     bar_voices, voice_beats, beat_notes = ids("Bars/Bar", "Voices"), ids("Voices/Voice", "Beats"), ids("Beats/Beat", "Notes")
     index_of = {}   # note id -> {key: articulation index} of its drum kit
@@ -177,20 +205,24 @@ def fix_drums(data):
                       lambda a: f"<InstrumentArticulation>{kit.get(a.group(1), a.group(1))}</InstrumentArticulation>",
                       m.group(0))
 
-    gpif = re.sub(r'<Note id="(\d+)">.*?</Note>', fix, gpif, flags=re.S)
-    out = io.BytesIO()
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for info, content in entries:
-            z.writestr(info, gpif.encode("utf-8") if info.filename == "Content/score.gpif" else content)
-    return out.getvalue()
+    return re.sub(r'<Note id="(\d+)">.*?</Note>', fix, gpif, flags=re.S)
 
 
 def dump(data):
-    """What alphaTab reads from a .gp file: title, artist, subtitle, instructions, tempo; per bar its time
-    signature, key, length in ticks (960 per quarter) and tempo changes; per track its name, drums or not, tab /
-    notation, MIDI channel, tuning, chord diagrams shown, and every beat of voice 1 (tick from the start, length, note value,
-    dots, tuplet, rest, chord name, notes: pitch (drums: General MIDI key), string (1 = lowest), fret, tie)."""
-    return json.loads(engine().call("openmusic.dump", data.hex()))
+    """What alphaTab reads from a .gp file: title, artist, subtitle, instructions, tempo, whether there is an
+    audio track and its size in bytes (audio_bytes), the sync points [bar index, occurrence, position in the
+    bar, ms]; per bar its time signature, key, length in ticks (960 per quarter) and tempo changes; per track
+    its name, drums or not, MIDI channel, mute / solo, tab / notation, tuning, chord diagrams shown, and every
+    beat of voice 1 (tick from the start, length, note value, dots, tuplet, rest, chord name, notes: pitch
+    (drums: General MIDI key), string (1 = lowest), fret, tie). The audio itself stays out of V8."""
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        entries = [(info, z.read(info)) for info in z.infolist()]
+    audio = next((content for info, content in entries if info.filename == ASSET), b"")
+    if audio:
+        data = rezip([(info, b"\0" if info.filename == ASSET else content) for info, content in entries])
+    song = json.loads(engine().call("openmusic.dump", data.hex()))
+    song["audio_bytes"] = len(audio)
+    return song
 
 
 def summary(song):

@@ -3,12 +3,20 @@ having to import and tidy up each MIDI file by hand.
 
     python experiments/export_gp.py outputs/mp3
     python experiments/export_gp.py outputs/mp3 --song "Carsick Cars - 中南海" --force
+    python experiments/export_gp.py outputs/mp3 --audio vocals --force      # vocals as the audio track
 
 For each <stems_root>/<song>/ folder with transcription/*.notes.json (from transcribe.py) this writes
-<song>/transcription/<song>.gp (Guitar Pro 7/8), with one track per stem: guitar (6 strings, standard tuning, tab + notation),
-bass (4 strings, tab + notation), vocals as a melody (notation only), piano and other (notation only) when
-they have at least MIN_TRACK_NOTES notes, and drums when transcription/drums.mid exists (any General MIDI drum
-file). Outputs newer than all their inputs are kept unless --force.
+<song>/transcription/<song>.gp (Guitar Pro 7/8), with one track per stem: guitar (6 strings, standard tuning,
+tab + notation; muted, as the draft is too busy to listen to), bass (4 strings, tab + notation), vocals as a
+melody (notation only), piano and other (notation only) when they have at least MIN_TRACK_NOTES notes, and drums
+when transcription/drums.mid exists (any General MIDI drum file). Outputs newer than all their inputs are kept
+unless --force.
+
+Audio track (--audio, default original): the song's own recording, songs/<song>.<ext> as in the workbench, goes
+in byte for byte as Guitar Pro 8's audio track; without it, the stems mixed into an MP3. --audio vocals embeds
+the vocals stem as it is, --audio none nothing. A sync point at the start of every bar, at the bar's time in
+the song (the same tempo map, so a pickup bar starts at 0 s), ties the recording to the score; Guitar Pro then
+plays the score at the recording's pace. Guitar Pro 7 has no audio track (not tried here what it makes of one).
 
 Bars and beats: the same tempo map as the MIDI files (transcribe.tempo_map on analysis.json), so bar N of the
 score is bar N of the MIDI and of the practice player (bar 1 may be a short pickup bar). Every analysis beat is
@@ -34,7 +42,8 @@ The score is laid out with PyGuitarPro's song model (Sviatoslav Abakumov, LGPL-3
 https://github.com/Perlence/PyGuitarPro) and handed to gp7.py as Guitar Pro 5 bytes in memory (no .gp5 file is
 written: Guitar Pro reads .gp5 text in a single-byte code page, so Chinese titles would come out garbled);
 alphaTab (MPL-2.0, vendored) turns them into the .gp, whose score is UTF-8 XML, so the song's real title is kept.
-The .gp is read back with alphaTab to check the title, bars, tempo, full bars and the notes of every track.
+The .gp is read back with alphaTab to check the title, bars, tempo, full bars, the notes of every track, the
+muted tracks, and the audio track with its sync points.
 """
 import argparse
 import io
@@ -47,8 +56,10 @@ from pathlib import Path
 import guitarpro as gp
 import mido
 import numpy as np
+import soundfile as sf
 
 import gp7
+from common import ROOT, load
 from transcribe import SETTINGS, read_analysis, seconds_to_beats, tempo_map
 
 TICKS = gp.Duration.quarterTime    # 960 ticks per beat; every analysis beat is written as a quarter note
@@ -70,6 +81,12 @@ W_POSITION = 0.03                  # cost per fret of hand position per chord (a
 W_CROSS = 1.0                      # cost per pair of chord notes whose strings are in the opposite order
 MAX_FINGERINGS = 256               # enough for any chord within a hand span; caps big notation-only chords
 GP5_TEXT = "utf-8"                 # text encoding of the in-memory Guitar Pro 5 bytes that alphaTab reads
+MUTED = ("guitar",)                # tracks that start muted: the guitar draft is too busy to listen to
+AUDIO_MODES = ("original", "vocals", "none")
+SONGS = ROOT / "songs"             # the original audio files, songs/<song>.<ext> (as in the workbench)
+GP8_AUDIO = (".mp3", ".m4a", ".wav", ".flac", ".aiff", ".aif", ".ogg")   # what Guitar Pro 8's audio track reads
+STEM_FILES = ("vocals", "drums", "bass", "guitar", "piano", "other")
+STEM_EXT = (".mp3", ".flac", ".wav")
 
 GUITAR = (64, 59, 55, 50, 45, 40)            # string 1 (high E4) to string 6 (low E2)
 BASS = (43, 38, 33, 28)                      # G2 D2 A1 E1
@@ -429,6 +446,7 @@ def make_track(song, number, stem, strings, settings):
     channel = 9 if stem == "drums" else [0, 2, 4, 6, 10, 12, 14][number - 1]
     program = 0 if stem == "drums" else SETTINGS[stem]["program"]
     track = gp.Track(song, number=number, name=settings["name"], fretCount=24, isPercussionTrack=stem == "drums",
+                     isMute=stem in MUTED,
                      strings=[gp.GuitarString(i, v) for i, v in enumerate(strings, 1)],
                      channel=gp.MidiChannel(channel=channel, effectChannel=channel if stem == "drums" else channel + 1,
                                             instrument=program),
@@ -543,7 +561,9 @@ def build_song(song_dir, analysis, stems):
 
     report = {"bars": len(bars), "tempo": tempos[0], "tempo_changes": len(tempos) - 1, "tracks": {},
               "key": key_text, "chords": len(chords), "title": title, "artist": artist,
-              "signatures": [n for _, n in bars]}
+              "signatures": [n for _, n in bars],
+              # where each bar starts in the audio, for the audio track's sync points: the song's own time
+              "sync": [(i, round(1000 * float(beats_to_seconds(b, knots)), 3)) for i, (b, _) in enumerate(bars)]}
     notice = [f"Bars and beats: {tempo_note}.",
               "Rhythm on a grid of 16ths and 8th-note triplets; ghost and overtone notes dropped."]
     for stem in [s for s in ORDER if s in stems]:
@@ -587,10 +607,24 @@ def build_song(song_dir, analysis, stems):
     return song, report
 
 
-def check(song, report):
+def check(song, report, audio=None):
     """Problems in what alphaTab reads back from the .gp (gp7.dump): title, artist, tempo, time signatures,
-    bars that do not add up, and struck notes per track against those written."""
+    bars that do not add up, struck notes per track against those written, which tracks are muted, and the
+    audio track: there with all its bytes and a sync point at the start of every bar, or not there at all."""
     problems = []
+    muted = [t["name"] for t in song["tracks"] if t["mute"]]
+    want_muted = [r["name"] for stem, r in report["tracks"].items() if "notes" in r and stem in MUTED]
+    if muted != want_muted:
+        problems.append(f"muted tracks {muted}, expected {want_muted}")
+    if audio:
+        sync = [(bar, round(ms, 3)) for bar, occurrence, position, ms in song["sync"]]
+        if song["audio_bytes"] != len(audio) or not song["backing_track"]:
+            problems.append(f"audio track of {song['audio_bytes']} bytes, expected {len(audio)}")
+        if len(sync) != len(report["sync"]) or any(a != b or abs(x - y) > 0.5
+                                                   for (a, x), (b, y) in zip(sync, report["sync"])):
+            problems.append(f"{len(sync)} sync points, expected {len(report['sync'])} at the bar starts")
+    elif song["backing_track"] or song["sync"]:
+        problems.append("an audio track that should not be there")
     got = {"title": song["title"], "artist": song["artist"], "tempo": song["tempo"],
            "signatures": [b["numerator"] for b in song["bars"]]}
     for key, value in got.items():
@@ -613,11 +647,66 @@ def up_to_date(out, inputs):
     return out.exists() and out.stat().st_mtime > max(p.stat().st_mtime for p in inputs if p.exists())
 
 
-def export_song(song_dir, force=False):
+def stem_paths(song_dir, names=STEM_FILES):
+    """{stem: path} of the song's stem audio files, .mp3 before .flac before .wav."""
+    found = {}
+    for name in names:
+        path = next((song_dir / f"{name}{ext}" for ext in STEM_EXT if (song_dir / f"{name}{ext}").exists()), None)
+        if path:
+            found[name] = path
+    return found
+
+
+def original_path(song_dir):
+    """songs/<song>.<ext>, the file the stems were split from, if it is there."""
+    return next((p for p in sorted(SONGS.glob(f"{song_dir.name}.*")) if p.stem == song_dir.name), None) \
+        if SONGS.is_dir() else None
+
+
+def stems_mix(paths):
+    """The stems summed back into one MP3 (LAME VBR about V2, as common.save), scaled down if it would clip."""
+    stems = [load(p) for p in paths]
+    n = min(s.shape[1] for s in stems)
+    mix = sum(s[:, :n] for s in stems)
+    mix /= max(1.0, float(np.abs(mix).max()) / 0.99)
+    buf = io.BytesIO()
+    with sf.SoundFile(buf, "w", 44100, 2, format="MP3", subtype="MPEG_LAYER_III", bitrate_mode="VARIABLE",
+                      compression_level=0.2) as f:
+        f.write(mix.T)
+    return buf.getvalue()
+
+
+def backing_audio(song_dir, mode):
+    """(bytes or None, what it is, the files it comes from) for the audio track. original: songs/<song>.<ext>
+    as it is when Guitar Pro 8 reads its format, else the stems mixed into an MP3; vocals: the vocals stem as
+    it is; none: no audio track."""
+    if mode == "none":
+        return None, "no audio track", []
+    if mode == "vocals":
+        path = stem_paths(song_dir, ("vocals",)).get("vocals")
+        if path:
+            return path.read_bytes(), f"vocals stem {path.name}", [path]
+        print(f"  no vocals stem in {song_dir}: no audio track")
+        return None, "no audio track (no vocals stem)", []
+    path = original_path(song_dir)
+    if path and path.suffix.lower() in GP8_AUDIO:
+        return path.read_bytes(), f"original songs/{path.name}", [path]
+    stems = stem_paths(song_dir)
+    if stems:
+        return stems_mix(list(stems.values())), f"the {len(stems)} stems mixed into an MP3", list(stems.values())
+    return None, "no audio track (no original, no stems)", []
+
+
+def megabytes(data):
+    return f"{len(data) / 1e6:.1f} MB" if len(data) >= 1e5 else f"{len(data) / 1e3:.0f} kB"
+
+
+def export_song(song_dir, force=False, audio_mode="original"):
     tdir = song_dir / "transcription"
     out = tdir / f"{song_dir.name}.gp"
     (tdir / f"{song_dir.name}.gp5").unlink(missing_ok=True)   # written by earlier versions
     inputs = list(tdir.glob("*.notes.json")) + [tdir / "drums.mid", song_dir / "analysis.json"]
+    inputs += [original_path(song_dir)] * bool(audio_mode == "original" and original_path(song_dir))
     if not force and up_to_date(out, inputs):
         print(f"{song_dir.name}: {out.name} is up to date (use --force to redo)")
         return True
@@ -628,23 +717,27 @@ def export_song(song_dir, force=False):
         print(f"{song_dir.name}: nothing to write ({report['tracks']})")
         out.unlink(missing_ok=True)
         return False
+    audio, audio_note, _ = backing_audio(song_dir, audio_mode)
     gp5 = io.BytesIO()
     gp.write(song, gp5, version=(5, 1, 0), encoding=GP5_TEXT)
-    data = gp7.to_gp(gp5.getvalue())
-    problems = check(gp7.dump(data), report)
+    data = gp7.to_gp(gp5.getvalue(), audio, report["sync"] if audio else ())
+    problems = check(gp7.dump(data), report, audio)
     if problems:
         raise SystemExit(f"{song_dir.name}: the .gp does not read back right: {'; '.join(problems)}")
     tmp = out.with_suffix(".gp.tmp")
     tmp.write_bytes(data)
     tmp.replace(out)
     changes = f" ({report['tempo_changes']} tempo changes)" if report["tempo_changes"] else ""
-    print(f"{song_dir.name}: {out.name}, {report['bars']} bars, {report['tempo']} BPM{changes}, "
-          f"key {report['key'] or '?'}, {report['chords']} chord symbols, {time.perf_counter() - start:.1f} s")
+    print(f"{song_dir.name}: {out.name} ({megabytes(data)}), {report['bars']} bars, {report['tempo']} BPM"
+          f"{changes}, key {report['key'] or '?'}, {report['chords']} chord symbols, {time.perf_counter() - start:.1f} s")
+    print(f"  audio track: {audio_note}" + (f", {megabytes(audio)}, {len(report['sync'])} sync points"
+                                            if audio else ""))
     for stem, r in report["tracks"].items():
         if "skipped" in r:
             print(f"  {stem}: skipped ({r['skipped']})")
             continue
         extra = ", drop D" if r["drop_d"] else ""
+        extra += ", muted" if stem in MUTED else ""
         extra += f", widest chord {r['max_span']} frets" if r["max_span"] is not None else ""
         print(f"  {stem}: {r['notes']} notes in {r['chords']} onsets, {r['triplet_beats']} triplet beats; dropped "
               f"{r['quiet']} soft, {r['overtones']} overtone, {r['out_of_range']} out of range, "
@@ -657,6 +750,9 @@ def main():
     parser.add_argument("stems_root", type=Path)
     parser.add_argument("--song", help="only this song folder")
     parser.add_argument("--force", action="store_true", help="redo songs whose .gp is up to date")
+    parser.add_argument("--audio", choices=AUDIO_MODES, default="original",
+                        help="audio track: the original song (songs/<song>.*, else the stems mixed), the vocals "
+                             "stem, or none (default: %(default)s; use --force after changing it)")
     args = parser.parse_args()
     if not args.stems_root.is_dir():
         raise SystemExit(f"no such folder: {args.stems_root}")
@@ -668,7 +764,7 @@ def main():
         raise SystemExit(f"no transcribed song under {args.stems_root} (run transcribe.py first)")
     print(f"PyGuitarPro {version('PyGuitarPro')}, alphaTab {gp7.VERSION} on mini-racer {version('mini-racer')}")
     for song_dir in song_dirs:
-        export_song(song_dir, args.force)
+        export_song(song_dir, args.force, args.audio)
 
 
 if __name__ == "__main__":

@@ -8,19 +8,24 @@ is an analysis.json at a steady 120 BPM with a 2-beat pickup, 4/4 bars and one 3
 notes.json files with timing jitter (+-20 ms): guitar open chords (E, Am, C, G), an F barre chord, an 8th-note
 run high on the neck, 16ths, an 8th-note triplet, a power chord, and ghost notes (soft, an overtone, one out of
 range); a bass line; a vocal melody; an arpeggio on "other"; a few notes on "piano" (too few: skipped); and a
-drums.mid. The .gp is read back with alphaTab (gp7.dump) and must have the Chinese title, every note on its beat
-with its pitch, the ghosts gone, the chord shapes a guitarist would use, no fretted stretch wider than the track
-allows, the triplet written as one, the drums on their kit pieces and never tied, and the chord names on their
-beats. Its score.gpif is also parsed with Python's own XML parser (title, bars, tracks, chord names without
-diagrams, tempo changes as steps). A few small cases test the rhythm grid, the note values and the clean-up on
-their own. Exits with status 1 on any failure.
+drums.mid; and an "original" recording (a click per beat in songs/ of the test folder) and two short stems. The .gp
+is read back with alphaTab (gp7.dump) and must have the Chinese title, every note on its beat with its pitch, the
+ghosts gone, the chord shapes a guitarist would use, no fretted stretch wider than the track allows, the triplet
+written as one, the drums on their kit pieces and never tied, the chord names on their beats, only the guitar
+muted, and the recording as its audio track, byte for byte, with a sync point at the start of every bar. Its
+score.gpif is also parsed with Python's own XML parser (title, bars, tracks, chord names without diagrams, tempo
+changes as steps, the audio track, sync points in samples, muted tracks). The --audio choices are tried too:
+vocals (the vocals stem as it is), the stems mixed when there is no original, and none. A few small cases test
+the rhythm grid, the note values and the clean-up on their own. Exits with status 1 on any failure.
 
 --songs checks every <song>/transcription/<song>.gp under a stems folder: it reads back with the song's real
 title, has the bars and time signatures of the song's tempo map (so bar N matches the MIDI and the player), bars
 that add up, notes on distinct strings within the track's frets and hand span, a drum track exactly when
-drums.mid exists, and no .gp5 left next to it.
+drums.mid exists, only the guitar muted, an audio track (the original from songs/ byte for byte, when it is
+there) with a sync point on every bar start, and no .gp5 left next to it.
 """
 import argparse
+import io
 import json
 import shutil
 import sys
@@ -30,6 +35,7 @@ from pathlib import Path
 
 import mido
 import numpy as np
+import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import export_gp  # noqa: E402
@@ -169,6 +175,18 @@ def write_song():
         (tdir / f"{stem}.notes.json").write_text(json.dumps({"version": 1, "stem": stem, "notes": notes,
                                                               "method": "synthetic"}), encoding="utf-8")
     write_drums(tdir / "drums.mid", drums)
+    # the "original" recording: a click on every beat, so its sync points have an audible reference
+    sr, n = 8000, int(PERIOD * N_BEATS * 8000)
+    click = np.zeros(n, np.float32)
+    for b in range(N_BEATS):
+        i = int(b * PERIOD * sr)
+        click[i:i + 80] = 0.5 * np.sin(2 * np.pi * 1000 * np.arange(len(click[i:i + 80])) / sr)
+    songs = TEST_ROOT / "songs"
+    songs.mkdir(parents=True, exist_ok=True)
+    sf.write(str(songs / f"{SONG}.wav"), click, sr, subtype="PCM_16")
+    for stem in ("vocals", "bass"):   # two short stems for --audio vocals and the stems mix
+        sf.write(str(song_dir / f"{stem}.wav"), 0.2 * np.sin(2 * np.pi * (220 if stem == "vocals" else 55)
+                                                            * np.arange(sr * 2) / sr), sr, subtype="PCM_16")
     return song_dir, parts, drum_want
 
 
@@ -248,6 +266,7 @@ def check_units():
 def check_song():
     print(f"synthetic song: {TEST_ROOT / SONG}")
     song_dir, parts, drum_want = write_song()
+    export_gp.SONGS = TEST_ROOT / "songs"
     expect(export_gp.export_song(song_dir, force=True), "export_song wrote nothing")
     tdir = song_dir / "transcription"
     expect(not list(tdir.glob("*.gp5")), "no .gp5 should be written")
@@ -303,7 +322,38 @@ def check_song():
     expect(chords == EXPECTED_CHORDS, f"chord symbols {chords}, expected {EXPECTED_CHORDS}")
     expect(not any(b["chord"] for b in drums["beats"]), "no chord symbols on drums")
     check_gpif(path, song)
+
+    # the audio track: the test's songs/<song>.wav as it is, a sync point at each bar start (0.5 s per beat)
+    original = (TEST_ROOT / "songs" / f"{SONG}.wav").read_bytes()
+    with zipfile.ZipFile(path) as z:
+        expect(z.read(gp7.ASSET) == original, "the audio track should be the original file, byte for byte")
+    starts = [0] + BAR_STARTS
+    expect([(b, round(ms, 3)) for b, _, _, ms in song["sync"]] == [(i, 500.0 * s) for i, s in enumerate(starts)],
+           f"sync points {song['sync'][:4]}..., expected one per bar start")
+    expect([t["name"] for t in song["tracks"] if t["mute"]] == ["Guitar"], "only the guitar should be muted")
+    expect(not any(t["solo"] for t in song["tracks"]), "no track should be soloed")
+    check_audio_modes(song_dir, path)
     return path
+
+
+def check_audio_modes(song_dir, path):
+    """--audio vocals embeds the vocals stem as it is; with no original the stems are mixed into an MP3;
+    none leaves the audio track out."""
+    export_gp.export_song(song_dir, force=True, audio_mode="vocals")
+    with zipfile.ZipFile(path) as z:
+        expect(z.read(gp7.ASSET) == (song_dir / "vocals.wav").read_bytes(), "--audio vocals: the vocals stem as it is")
+    export_gp.SONGS = TEST_ROOT / "no songs here"
+    export_gp.export_song(song_dir, force=True)
+    with zipfile.ZipFile(path) as z:
+        mix = z.read(gp7.ASSET)
+    audio, sr = sf.read(io.BytesIO(mix))
+    expect(mix[:3] == b"ID3" or mix[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"), "the stems mix should be an MP3")
+    expect(abs(len(audio) / sr - 2.0) < 0.1, f"the stems mix should be as long as the stems: {len(audio) / sr:.2f} s")
+    export_gp.export_song(song_dir, force=True, audio_mode="none")
+    song = gp7.dump(path.read_bytes())
+    expect(not song["backing_track"] and not song["sync"] and song["audio_bytes"] == 0, "--audio none: no audio track")
+    export_gp.SONGS = TEST_ROOT / "songs"
+    export_gp.export_song(song_dir, force=True)   # leave the default file for opening by hand
 
 
 def check_gpif(path, song):
@@ -322,6 +372,19 @@ def check_gpif(path, song):
     tempos = [a for a in root.findall("MasterTrack/Automations/Automation") if a.findtext("Type") == "Tempo"]
     expect(all(a.findtext("Linear") == "false" for a in tempos) and [a.findtext("Bar") for a in tempos].count("0") == 1,
            f"{name}: tempo changes should be steps, bar 1 marked once")
+    states = {t.findtext("Name"): t.findtext("PlaybackState") for t in root.findall("Tracks/Track")}
+    expect({n for n, state in states.items() if state == "Mute"} == {t["name"] for t in song["tracks"] if t["mute"]},
+           f"{name}: gpif playback states {states}")
+    if song["backing_track"]:
+        backing = root.find("BackingTrack")
+        expect(backing is not None and backing.findtext("Enabled") == "true" and backing.findtext("Source") == "Local"
+               and backing.findtext("FramePadding") == "0", f"{name}: gpif audio track")
+        expect(root.findtext("Assets/Asset/EmbeddedFilePath") == gp7.ASSET, f"{name}: gpif asset path")
+        frames = [(int(a.findtext("Value/BarIndex")), int(a.findtext("Value/FrameOffset")))
+                  for a in root.findall("MasterTrack/Automations/Automation") if a.findtext("Type") == "SyncPoint"]
+        want = [(bar, round(ms / 1000 * 44100)) for bar, _, _, ms in song["sync"]]
+        expect(len(frames) == len(want) and all(a == b and abs(x - y) <= 1 for (a, x), (b, y) in zip(frames, want)),
+               f"{name}: gpif sync points (samples at 44.1 kHz) {frames[:3]}, expected {want[:3]}")
 
 
 def check_songs(stems_root):
@@ -339,8 +402,19 @@ def check_songs(stems_root):
         expect([b["numerator"] for b in song["bars"]] == [n for _, n in bars], f"{song_dir.name}: bars differ from the tempo map")
         has_drums = any(t["percussion"] for t in song["tracks"])
         expect(has_drums == (song_dir / "transcription" / "drums.mid").is_file(), f"{song_dir.name}: drum track")
+        expect([t["name"] for t in song["tracks"] if t["mute"]] == ["Guitar"], f"{song_dir.name}: only the guitar muted")
+        knots, _, bars = export_gp.song_bars(read_analysis(song_dir), export_gp.read_notes(song_dir))
+        starts = [1000 * float(export_gp.beats_to_seconds(b, knots)) for b, _ in bars]
+        expect(song["backing_track"] and len(song["sync"]) == len(bars)
+               and all(abs(ms - s) < 0.5 for (_, _, _, ms), s in zip(song["sync"], starts)),
+               f"{song_dir.name}: audio track with a sync point at every bar start")
+        original = export_gp.original_path(song_dir)
+        if original:
+            expect(song["audio_bytes"] == original.stat().st_size, f"{song_dir.name}: audio track is not {original.name}")
         print(f"{song_dir.name}: {len(song['bars'])} bars, {song['tempo']} BPM, title {song['title']!r} by "
-              f"{song['artist']!r}, {sum(bool(t['tempos']) for t in song['bars'])} tempo marks")
+              f"{song['artist']!r}, {sum(bool(t['tempos']) for t in song['bars'])} tempo marks; audio track "
+              f"{song['audio_bytes'] / 1e6:.1f} MB ({original.name if original else 'stems mix'}), "
+              f"{len(song['sync'])} sync points; .gp {path.stat().st_size / 1e6:.1f} MB")
         n_chords = 0
         for track in song["tracks"]:
             spec = export_gp.TRACKS.get(track["name"].split(" ")[0].lower(), {})
@@ -353,16 +427,20 @@ def check_songs(stems_root):
             tuplets = sum(b["tuplet"][0] > 1 for b in track["beats"])
             print(f"  {track['name']}: {notes} notes, {tuplets} triplet notes/rests, tuning "
                   f"{'drums' if track['percussion'] else track['tuning']}, "
-                  f"{'tab + notation' if track['tab'] else 'notation'}")
+                  f"{'tab + notation' if track['tab'] else 'notation'}{', muted' if track['mute'] else ''}")
         print(f"  {n_chords} chord symbols")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--songs", type=Path, help="also check the exported .gp5 files under this stems folder")
+    parser.add_argument("--songs", type=Path, help="also check the exported .gp files under this stems folder")
     args = parser.parse_args()
     check_units()
-    check_song()
+    songs = export_gp.SONGS
+    try:
+        check_song()
+    finally:
+        export_gp.SONGS = songs   # the real songs/ again, for --songs
     if args.songs:
         check_songs(args.songs)
     if FAILURES:

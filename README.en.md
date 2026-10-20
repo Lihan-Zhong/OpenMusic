@@ -100,7 +100,8 @@ piano roll).
   detected number of beats. When the song starts with less than a full bar (a pickup), that bar is bar 1 in
   Guitar Pro and bar 0 in the player, so later bar numbers are one higher than in the player. Guitar Pro keeps
   one whole-number tempo at a time: the score follows the per-bar tempo and marks a new tempo when it moves by
-  more than 3 %, so playback inside Guitar Pro is close to the recording, not locked to it.
+  more than 3 %. With the song's audio track in the file, its sync points set the playback tempo, so the score
+  follows the recording.
 - **Rhythm**: notes go on a grid of 16ths, or of 8th-note triplets in beats that are clearly triplets. Notes that
   start together form a chord, held until the next note starts; short gaps are closed, so there are fewer stray
   rests.
@@ -116,11 +117,24 @@ piano roll).
 - It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The file name is always the
   song's real name; track and chord names are plain ASCII.
 - How: PyGuitarPro lays the score out in memory; alphaTab (included in `experiments/vendor/alphatab/`, run inside
+- **The song's audio track**: the file carries the original recording (the file in `songs/`, as it is, not
+  re-encoded) as a Guitar Pro 8 audio track, with a sync point at the start of every bar taken from the detected
+  bar lines. Bar N lines up with the same place in the player, and the score plays along with the recording.
+  Without an original, the stems mixed into an MP3 are used. `--audio vocals` embeds only the vocals stem,
+  `--audio none` no audio. This makes the files bigger: about 5-16 MB for a 2-7 minute song.
+- **Guitar muted**: the guitar transcription is busy, so its track starts muted (the tab shows as usual); bass,
+  drums and vocals play. Unmute it in Guitar Pro's mixer.
   Python by mini-racer, so no Node.js or browser is needed) writes it as the .gp, which is read back to check the
-  title, bars, tempo and every track's notes. The older .gp5 format is not used: Guitar Pro reads its text in a
-  single-byte code page (also on a Mac), so Chinese titles would come out garbled.
+  title, bars, tempo, every track's notes, the muted tracks, the audio track and every sync point. The older .gp5
+  format is not used: Guitar Pro reads its text in a single-byte code page (also on a Mac), so Chinese titles
+  would come out garbled.
+- Guitar Pro 7: the file is in the Guitar Pro 8 format (as everything alphaTab exports), and Guitar Pro 7 has no
+  audio track, so it cannot show the recording. Going by the minimum version written in the file, the latest
+  Guitar Pro 7 should open the score, but this has not been tried (there is no Guitar Pro 7 here); if it fails,
+  write the score without audio with `--audio none`.
 
-On its own: `.venv/bin/python experiments/export_gp.py outputs/mp3 --song "<song>"`.
+On its own: `.venv/bin/python experiments/export_gp.py outputs/mp3 --song "<song>"` (add `--force` when changing
+the audio, e.g. `--audio vocals --force`).
 
 ## Choosing a separation model
 
