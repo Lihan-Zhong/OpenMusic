@@ -119,11 +119,16 @@ piano roll).
   file's score information.
 - **The song's audio track**: the file carries the original recording (the file in `songs/`, as it is, not
   re-encoded) as a Guitar Pro 8 audio track, with a sync point at the start of every bar taken from the detected
-  bar lines. Bar N lines up with the same place in the player, and the score plays along with the recording.
+  bar lines. Bar N lines up with the same place in the player, and the score plays along with the recording
+  (tried in Guitar Pro 8 on a Mac).
   Without an original, the stems mixed into an MP3 are used. `--audio vocals` embeds only the vocals stem,
   `--audio none` no audio. This makes the files bigger: about 5-16 MB for a 2-7 minute song.
 - **Guitar muted**: the guitar transcription is busy, so its track starts muted (the tab shows as usual); bass,
   drums and vocals play. Unmute it in Guitar Pro's mixer.
+- **No sound from the recording?** First import any audio into Guitar Pro 8 yourself: usually it is the audio
+  output. With Bluetooth headphones (AirPods) Guitar Pro 8 played nothing at all here, and the computer's
+  speakers worked. The red headphones on the audio track's row are Solo: while it is on, the other tracks are
+  silent.
 - It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The file name is always the
   song's real name; track and chord names are plain ASCII.
 - How: PyGuitarPro lays the score out in memory; alphaTab (included in `experiments/vendor/alphatab/`, run inside

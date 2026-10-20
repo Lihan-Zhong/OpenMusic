@@ -18,6 +18,13 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   Optional plugin ADTOF-pytorch (user installs into git-ignored plugins/; weights CC BY-NC-SA, never commit or
   import it): transcribe.py --drums auto uses its `adtof` CLI as a subprocess when installed (better on real
   recordings: hi-hat 0.79, cymbals 0.83); drums.notes.json "backend" says which.
+- Guitar Pro: `export_gp.py` + `gp7.py` (alphaTab 1.8.4 in mini-racer) write transcription/<song>.gp in GP8's format:
+  the guitar track starts muted, and the original song (songs/<file>, byte for byte) is an audio track with a
+  sync point per bar, laid out as GP8 stores it (Content/Assets/<id>.mp3). Checked in GP8 on the user's Mac.
+  If "no sound" is reported, check the audio output first (it was AirPods once), not the file.
+- Player usability pass (eec5571): loops can be cleared (✕, Esc, double-click), Set A/B keys, a sticky transport
+  with a loop readout, trainer progress and restore, a restored-settings notice and 本曲恢复默认; checked by the
+  ux section of `tests/player_test.py`. Stems are read-only for every step but the split (test_transcribe checks).
 - Workbench `experiments/app.py` (stdlib only, http://localhost:8780) is the main entry: upload to songs/ ->
   split (Demucs 6 or RoFormer via `evaluate_multi.py <model> --full --no-score --only=<song>`) -> analyze ->
   transcribe -> build_player, one job at a time; the player links back to it. Hardened: 127.0.0.1, Host check,
@@ -29,7 +36,8 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   BS-RoFormer-SW 10.3 dB. The README only keeps a short model guide.
 - Known gaps: chord extensions are hints; Beat This! locks to 2x/4x in noise passages (Carsick 140-306 s, no drums):
   analyze.py evens the grid out (regular_beats, bar_lines; transcribe.py uses it as-is), but there it is a guess;
-  guitar MIDI is a dense draft, fast low bass is missed; nobody has listened to slow-speed quality yet.
+  guitar MIDI is a dense draft, fast low bass is missed; nobody has listened to slow-speed quality yet. The user
+  hears damage in the guitar stem: separation or the stretch engine, not yet measured.
 
 ## Testing
 - `experiments/tests/test_analyze.py` (~20 s), `experiments/tests/test_transcribe.py` (~6 s),
