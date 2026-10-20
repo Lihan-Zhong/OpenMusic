@@ -19,7 +19,8 @@ committed time map:
          slider drag; each click's output time against the plan; metronome clicks against the beats
   loud   bass at -1 dBFS boosted +12 dB: output peak behind the limiter and the soft clipper
   bare   two stems, no analysis.json, no transcription: the page loads and plays; file:// shows the hint
-  ui     mouse drags on the waveform (loop, speed region, snapped to bars), keys (also pressed quickly), solo,
+  ui     mouse drags on the waveform (loop, speed region, snapped to bars; over a switched-off loop; a speed region
+         inside a loop), removing the loop (✕ on the waveform, Esc, button), keys (also pressed quickly), solo,
          reload keeps settings, a count-in started between two beats stays in time
   --cpu  6 real stems rendered offline: CPU share, and magnitude-spectrogram fidelity of each stem (alone,
          soloed, and summed) against the time-warped original, which is fair to a phase vocoder
@@ -470,6 +471,27 @@ def run_ui(browser, base, problems):
     page.reload()
     page.wait_for_function("document.documentElement.dataset.ready === '1'")
     res["after_reload"] = page.evaluate(state)
+    # the loop can be removed, and a loop that is off (or one in the other drag mode) does not catch the mouse
+    page.evaluate("() => window.scrollTo(0, 0)")
+    box.update(page.locator("#wave").bounding_box())
+    drag(5.2, 7.3)                                    # over the switched-off loop 4.5-8.5: a new loop, not a move
+    res["loop_over_old_one"] = page.evaluate(state)["loop"]
+    page.check("input[name=drag][value=speed]")
+    drag(4.8, 6.2)                                    # inside the loop: a speed region, the loop stays
+    res["speed_inside_loop"] = page.evaluate(state)
+    page.check("input[name=drag][value=loop]")
+    page.locator("#wave [part~=loop] button").click()  # the ✕ on the waveform
+    res["loop_after_wave_x"] = page.evaluate(state)["loop"]
+    res["clear_button_disabled"] = page.evaluate("() => document.getElementById('loop-clear').disabled")
+    page.keyboard.press("l")                          # a new two-bar loop from here, then Esc removes it
+    res["loop_after_l"] = page.evaluate(state)["loop"]
+    page.keyboard.press("Escape")
+    res["loop_after_esc"] = page.evaluate(state)["loop"]
+    page.keyboard.press("l")
+    page.click("#loop-clear")
+    res["loop_after_clear_button"] = page.evaluate(state)["loop"]
+    page.locator("#wave [part~=speed-0] button").click()  # a speed region's ✕ works in either drag mode
+    res["regions_after_wave_x"] = page.evaluate(state)["regions"]
     # a count-in from between two beats (3.25 s) must stay in time: the music's next beat (3.5 s) comes one beat
     # (0.5 s) after the last count-in click
     res["count_in_offbeat_gap_s"] = page.evaluate("""async () => { const tr = window.player.tr, clicks = [];
@@ -494,6 +516,13 @@ def run_ui(browser, base, problems):
         "silent while paused": res["paused_output_peak"] < 1e-4,
         "loop and speed regions come back after a reload": res["after_reload"]["loop"]["a"] == 4.5
         and res["after_reload"]["regions"] == [{"start": 12.5, "end": 16.5, "speed": 0.6}],
+        "a drag over a switched-off loop draws a new loop": res["loop_over_old_one"] == {"on": True, "a": 4.5, "b": 6.5},
+        "speed mode: a drag inside the loop adds a speed region": res["speed_inside_loop"]["loop"] == {"on": True, "a": 4.5, "b": 6.5}
+        and {"start": 4.5, "end": 6.5, "speed": 0.8} in res["speed_inside_loop"]["regions"],
+        "the loop's ✕, Esc and the clear button remove the loop": all(
+            res[k] == {"on": False, "a": 0, "b": 0} for k in ("loop_after_wave_x", "loop_after_esc", "loop_after_clear_button"))
+        and res["clear_button_disabled"] and res["loop_after_l"]["on"],
+        "a speed region's ✕ removes it": res["regions_after_wave_x"] == [{"start": 12.5, "end": 16.5, "speed": 0.6}],
     }
     return res, checks
 

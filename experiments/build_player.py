@@ -61,7 +61,8 @@ TEXT = {
         "load_error": "载入失败：{msg}",
         "stems": {"vocals": "人声", "drums": "鼓", "bass": "贝斯", "guitar": "吉他", "piano": "钢琴/键盘", "other": "其他"},
         "play": "▶ 播放", "pause": "❚❚ 暂停", "back": "⏮", "back_title": "回到开头（开着循环时回到 A）",
-        "loop": "A-B 循环", "countin": "预备拍", "countin_title": "按播放后先数一小节",
+        "loop": "A-B 循环", "loop_clear": "✕ 清除循环", "loop_clear_title": "删掉这个 A-B 循环（也可以按 Esc）",
+        "countin": "预备拍", "countin_title": "按播放后先数一小节",
         "metro": "节拍器", "metro_title": "按检测到的拍子打点，重拍更响，跟着变速走",
         "speed": "速度", "speed_reset": "原速", "pitch": "变调", "semitones": "半音", "cents": "音分",
         "trainer": "速度练习",
@@ -88,7 +89,7 @@ TEXT = {
         "chord": "和弦", "chord_next": "下一个：{c}", "transposed": "（已按变调 {k} 移调）",
         "no_analysis": "没有 analysis.json：运行 experiments/analyze.py 后，这里会显示速度、调、和弦，节拍器才能用。",
         "region_row": "{a} – {b}", "bars": "第 {a}–{b} 小节", "play_here": "▶", "delete": "删除",
-        "shortcuts": "快捷键：空格 播放/暂停 · L 循环开关 · [ ] 速度 −/+5% · ← → 前后一小节 · M 节拍器 · Home 回到开头",
+        "shortcuts": "快捷键：空格 播放/暂停 · L 循环开关 · Esc 清除循环 · [ ] 速度 −/+5% · ← → 前后一小节 · M 节拍器 · Home 回到开头",
         "credits": "音频引擎 Signalsmith Stretch（MIT）· 波形 wavesurfer.js（BSD-3）· "
                    "设计参考 Woodshed（MIT）、BandBuddy（Apache-2.0）、Steminize（MIT）",
     },
@@ -104,7 +105,8 @@ TEXT = {
         "load_error": "Could not load: {msg}",
         "stems": {"vocals": "Vocals", "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano/keys", "other": "Other"},
         "play": "▶ Play", "pause": "❚❚ Pause", "back": "⏮", "back_title": "Back to the start (to A when looping)",
-        "loop": "A-B loop", "countin": "Count-in", "countin_title": "Count one bar before playback starts",
+        "loop": "A-B loop", "loop_clear": "✕ Clear loop", "loop_clear_title": "Remove this A-B loop (or press Esc)",
+        "countin": "Count-in", "countin_title": "Count one bar before playback starts",
         "metro": "Metronome", "metro_title": "Clicks on the detected beats, louder on the downbeat, follows speed changes",
         "speed": "Speed", "speed_reset": "100%", "pitch": "Pitch", "semitones": "semitones", "cents": "cents",
         "trainer": "Speed trainer", "trainer_text": "Every {every} loop pass(es) add {step}%, from {start}% up to {target}% "
@@ -133,7 +135,7 @@ TEXT = {
         "chord": "Chord", "chord_next": "next: {c}", "transposed": " (transposed {k})",
         "no_analysis": "No analysis.json: run experiments/analyze.py to see tempo, key and chords and to use the metronome.",
         "region_row": "{a} – {b}", "bars": "bars {a}–{b}", "play_here": "▶", "delete": "Delete",
-        "shortcuts": "Keys: Space play/pause · L loop on/off · [ ] speed −/+5% · ← → one bar back/forward · "
+        "shortcuts": "Keys: Space play/pause · L loop on/off · Esc clear loop · [ ] speed −/+5% · ← → one bar back/forward · "
                      "M metronome · Home back to start",
         "credits": "Audio engine Signalsmith Stretch (MIT) · waveform wavesurfer.js (BSD-3) · "
                    "design ideas from Woodshed (MIT), BandBuddy (Apache-2.0), Steminize (MIT)",
@@ -365,6 +367,7 @@ code { background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
     <button id="play"></button>
     <button id="back"></button>
     <label><input type="checkbox" id="loop"> <span id="l-loop"></span></label>
+    <button id="loop-clear"></button>
     <label id="countin-box"><input type="checkbox" id="countin"> <span id="l-countin"></span></label>
     <label id="metro-box"><input type="checkbox" id="metro"> <span id="l-metro"></span>
       <input type="range" id="metro-vol" min="-30" max="6" step="1" value="-6" aria-label="metronome volume"></label>
@@ -785,6 +788,7 @@ function labelStatic() {
   t('l-drag', T.drag); t('l-drag-loop', T.drag_loop); t('l-drag-speed', T.drag_speed); t('l-snap', T.snap);
   t('l-zoom', T.zoom); t('l-notes', T.notes_of); t('l-span', T.span);
   t('back', T.back); $('back').title = T.back_title; t('l-loop', T.loop); t('l-countin', T.countin);
+  t('loop-clear', T.loop_clear); $('loop-clear').title = T.loop_clear_title;
   $('countin-box').title = T.countin_title; t('l-metro', T.metro); $('metro-box').title = T.metro_title;
   t('l-speed', T.speed); t('speed-reset', T.speed_reset); t('l-pitch', T.pitch); t('l-semi', T.semitones);
   t('l-cents', T.cents); t('l-trainer', T.trainer); t('l-regions', T.regions); t('regions-hint', T.regions_hint);
@@ -873,13 +877,33 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
     plugins: [TimelinePlugin.create({height: 16, style: {fontSize: '10px', color: css('--muted')}}), regs],
   });
   let syncing = false;
-  const regionLabel = text => { const el = document.createElement('span'); el.textContent = text; return el; };
+  // A region's label with a small ✕ that removes it (the waveform lives in a shadow root: inline styles).
+  const regionLabel = (text, title, remove) => {
+    const el = document.createElement('span'); el.textContent = text + ' ';
+    const x = document.createElement('button'); x.textContent = '✕'; x.title = title; x.dataset.remove = '';
+    Object.assign(x.style, {font: 'inherit', fontSize: '11px', lineHeight: '15px', padding: '0 4px', border: '0',
+      borderRadius: '4px', background: 'rgba(127,127,127,.28)', color: 'inherit', cursor: 'pointer', pointerEvents: 'auto'});
+    x.addEventListener('pointerdown', e => e.stopPropagation());     // not a drag or a seek
+    x.addEventListener('click', e => { e.stopPropagation(); remove(); });
+    el.append(x);
+    return el;
+  };
   const speedColor = r => r < 0.995 ? css('--slow') : r > 1.005 ? css('--fast') : css('--loop-off');
+  const hasLoop = () => tr.loop.b > tr.loop.a;
   function drawRegions() {
     syncing = true;
     regs.clearRegions();
-    tr.regions.forEach((r, i) => regs.addRegion({id: 'speed-' + i, start: r.start, end: r.end, color: speedColor(r.speed), content: regionLabel(pct(r.speed))}));
-    if (tr.loop.b > tr.loop.a) regs.addRegion({id: 'loop', start: tr.loop.a, end: tr.loop.b, color: tr.loop.on ? css('--loop') : css('--loop-off'), content: regionLabel('A–B')});
+    // Each drag mode edits its own kind of region. The others, and a loop that is switched off, let the mouse
+    // through, so a new loop can be drawn across speed regions (or over the old loop) and a speed region inside a loop.
+    const add = (opts, live) => {
+      const r = regs.addRegion({...opts, drag: live, resize: live});
+      if (!live && r.element) r.element.style.pointerEvents = 'none';
+    };
+    tr.regions.forEach((r, i) => add({id: 'speed-' + i, start: r.start, end: r.end, color: speedColor(r.speed),
+      content: regionLabel(pct(r.speed), T.delete, () => { tr.regions.splice(i, 1); afterRegionEdit(); })}, dragMode === 'speed'));
+    if (hasLoop()) add({id: 'loop', start: tr.loop.a, end: tr.loop.b, color: tr.loop.on ? css('--loop') : css('--loop-off'),
+      content: regionLabel('A–B', T.loop_clear_title, clearLoop)}, dragMode === 'loop' && tr.loop.on);
+    $('loop-clear').disabled = !hasLoop();
     syncing = false;
   }
   function setSpeedRegion(a, b, speed, skip = null) {     // the new region wins where it overlaps others
@@ -925,7 +949,7 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
     if (disableDrag) disableDrag();
     disableDrag = regs.enableDragSelection({color: m === 'loop' ? css('--loop') : css('--slow')});
   }
-  document.querySelectorAll('input[name=drag]').forEach(el => el.onchange = () => setDragMode(el.value));
+  document.querySelectorAll('input[name=drag]').forEach(el => el.onchange = () => { setDragMode(el.value); drawRegions(); });
   setDragMode('loop');
   const snapSel = $('snap');
   for (const [v, label] of [['bar', T.snap_bar], ['beat', T.snap_beat], ['off', T.snap_off]])
@@ -962,7 +986,7 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
   const loopBox = $('loop');
   loopBox.checked = tr.loop.on;
   function setLoop(on) {
-    if (on && !(tr.loop.b > tr.loop.a)) {      // no loop drawn yet: take two bars from here (or 4 s)
+    if (on && !hasLoop()) {      // no loop drawn yet: take two bars from here (or 4 s)
       const x = tr.position(), k = Math.max(0, barAt(x) - 1), a = downbeats.length > 1 ? downbeats[k] : x;
       tr.loop = {a, b: Math.min(loaded.duration, downbeats.length > k + 2 ? downbeats[k + 2] : a + 4)};
     }
@@ -972,6 +996,13 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
     drawRegions(); updateTrainerText(); save();
   }
   loopBox.onchange = () => setLoop(loopBox.checked);
+  function clearLoop() {       // ✕ button, the ✕ on the waveform, Esc: the loop is gone (L makes a new one here)
+    if (!hasLoop()) return;
+    tr.trainer.on = $('trainer').checked = false;
+    tr.loop = {on: false, a: 0, b: 0}; loopBox.checked = false;
+    tr.changed(); drawRegions(); updateTrainerText(); save();
+  }
+  $('loop-clear').onclick = clearLoop;
   $('countin').checked = tr.countInOn; $('countin').onchange = () => { tr.countInOn = $('countin').checked; save(); };
   $('metro').checked = tr.metroOn;
   $('metro').onchange = () => { tr.metroOn = $('metro').checked; if (!tr.metroOn) tr.cancelClicks(ctx.currentTime); else tr.tick(); save(); };
@@ -1302,6 +1333,7 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
       m: () => { if (hasGrid) { $('metro').checked = !$('metro').checked; $('metro').onchange(); } },
       M: () => map.m(),
       Home: () => tr.seek(tr.loop.on ? tr.loop.a : 0),
+      Escape: clearLoop, Delete: clearLoop, Backspace: clearLoop,
     };
     if (map[e.key]) { e.preventDefault(); map[e.key](); }
   });
@@ -1311,7 +1343,7 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
   ws.on('ready', () => media.emit('timeupdate'));   // show the cursor at a remembered loop's A
   loadNotes();
   requestAnimationFrame(frame);
-  return {ws, regs, stems, applyGains, setSpeed, setLoop, setPitch, setSpeedRegion, afterRegionEdit, drawRegions};
+  return {ws, regs, stems, applyGains, setSpeed, setLoop, clearLoop, setPitch, setSpeedRegion, afterRegionEdit, drawRegions};
 }
 
 main().catch(err => { setStatus(fill(T.load_error, {msg: err?.message || String(err)}), true); console.warn(err); });
