@@ -55,7 +55,7 @@ experiments/
   evaluate_multi.py   score a multi-stem model: python experiments/evaluate_multi.py <model> --split test --song --full
   verify_scores.py    re-score methods from scratch and compare with the stored results
   oracle.py           the ceiling (ideal ratio mask)
-  build_page.py       build the listening page compare.html
+  build_page.py       build the listening pages compare.html (Chinese) and compare.en.html (English)
   methods/            3-stem methods, one separate(mix, sr) per file
   methods_multi/      multi-stem AI models: demucs4, demucs6, roformer_sw
 results/              each method's scores (JSON) and experiment notes in method_info.json
@@ -114,7 +114,10 @@ Model weights download to `.cache/` on first use (Demucs about 80 MB, RoFormer-S
 ```bash
 .venv/bin/python -m http.server 8765
 ```
-Open http://localhost:8765/compare.html in a browser.
+Open http://localhost:8765/compare.html in a browser (English: compare.en.html).
+If the separated stems were copied over from another computer as a folder (with `data/song_excerpts/` and
+`outputs/`, WAV or FLAC), `.venv/bin/python experiments/build_page.py --root <that folder>` builds both
+pages inside it.
 
 ## Licences and caveats
 

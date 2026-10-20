@@ -50,7 +50,7 @@ experiments/
   evaluate_multi.py   给多轨模型打分：python experiments/evaluate_multi.py <模型> --split test --song --full
   verify_scores.py    从头重新打分，和已存的结果对比
   oracle.py           理论上限（理想频谱遮罩）
-  build_page.py       生成对比试听页 compare.html
+  build_page.py       生成对比试听页 compare.html（中文）和 compare.en.html（英文）
   methods/            3 轨方法：每个文件一个 separate(mix, sr)
   methods_multi/      多轨 AI 模型：demucs4、demucs6、roformer_sw
 results/              每个方法的分数（JSON）和实验说明 method_info.json
@@ -107,7 +107,9 @@ curl -L -o data/MUSDB18-7-STEMS.zip https://github.com/sigsep/sigsep-mus-db/rele
 ```bash
 .venv/bin/python -m http.server 8765
 ```
-浏览器打开 http://localhost:8765/compare.html 。
+浏览器打开 http://localhost:8765/compare.html （英文版：compare.en.html）。
+如果分轨结果是从另一台电脑拷过来的文件夹（里面有 `data/song_excerpts/` 和 `outputs/`，WAV 或 FLAC 都行），
+可以用 `.venv/bin/python experiments/build_page.py --root <那个文件夹>` 直接在里面生成两个试听页。
 
 ## 许可和注意事项
 
