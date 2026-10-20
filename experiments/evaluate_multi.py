@@ -10,6 +10,7 @@ so guitar + piano + other are summed into other4 for scoring. Guitar is judged b
     python experiments/evaluate_multi.py demucs6 --full                  # also split every full song in songs/
     python experiments/evaluate_multi.py demucs6 --full --lossless       # full songs as FLAC instead of MP3
     python experiments/evaluate_multi.py roformer_sw --full --no-score   # just split songs/ (no MUSDB18 needed)
+    python experiments/evaluate_multi.py demucs6 --full --no-score --only "Carsick Cars - 中南海"   # one song
 
 Excerpt stems (--song) are for comparing methods by ear, so they are always lossless FLAC.
 Full-song stems (--full) are the finished product: MP3 by default, FLAC with --lossless.
@@ -17,11 +18,13 @@ Full-song stems (--full) are the finished product: MP3 by default, FLAC with --l
 import argparse
 import importlib.util
 import json
+import sys
 import time
 
 import numpy as np
 
-from common import EXCERPTS, LOSSLESS_EXT, OUTPUTS, PRODUCT_EXT, RESULTS, ROOT, SR, load, save, sdr, tracks
+from common import (EXCERPTS, LOSSLESS_EXT, OUTPUTS, PRODUCT_EXT, RESULTS, ROOT, SR, STEMS_INFO, load, save, sdr,
+                    tracks, write_stems_info)
 
 SCORED = ("vocals", "drums", "bass", "other4")
 AUDIO = {".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg"}
@@ -74,6 +77,7 @@ def main():
     parser.add_argument("--full", action="store_true", help="render every full song in songs/")
     parser.add_argument("--lossless", action="store_true", help="write full-song stems as FLAC instead of MP3")
     parser.add_argument("--no-score", action="store_true", help="skip scoring on the MUSDB18 clips")
+    parser.add_argument("--only", metavar="NAME", help="with --full: split only the song in songs/ with this name (no extension)")
     args = parser.parse_args()
     separate = load_method(args.method)
     if not args.no_score:
@@ -85,13 +89,26 @@ def main():
             print(f"wrote {OUTPUTS / args.method / path.stem}/")
     if args.full:
         ext = LOSSLESS_EXT if args.lossless else PRODUCT_EXT
-        for path in sorted(p for p in (ROOT / "songs").iterdir() if p.suffix.lower() in AUDIO):
+        songs = sorted(p for p in (ROOT / "songs").iterdir() if p.suffix.lower() in AUDIO)
+        if args.only:
+            songs = [p for p in songs if p.stem == args.only]
+            if not songs:
+                raise SystemExit(f"no song named {args.only!r} in songs/")
+        base = OUTPUTS / f"{args.method}_full"
+        for path in songs:
+            folder = base / path.stem
+            if folder.resolve().parent != base.resolve():  # e.g. a song called ".." must not write elsewhere
+                print(f"skipping {path.name}: unusable as a folder name")
+                continue
+            (folder / STEMS_INFO).unlink(missing_ok=True)  # written again after the last stem: marks a finished split
             mix = load(path)
             t0 = time.perf_counter()
             est = run(separate, mix)
             took = time.perf_counter() - t0
             for k, v in est.items():
-                save(OUTPUTS / f"{args.method}_full" / path.stem / f"{k}{ext}", v)
+                save(folder / f"{k}{ext}", v)
+            write_stems_info(folder, args.method, stems=sorted(est), format=ext.lstrip("."), source=path.name,
+                             split_seconds=round(took, 1), platform=sys.platform, date=time.strftime("%Y-%m-%d"))
             print(f"{path.name}: {mix.shape[1] / SR:.0f} s song split in {took:.1f} s")
 
 

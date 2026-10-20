@@ -9,7 +9,7 @@ and file names say which song and stem it is. Keep the lossless originals for co
 import argparse
 from pathlib import Path
 
-from common import PRODUCT_EXT, load, save
+from common import PRODUCT_EXT, load, read_stems_info, save, write_stems_info
 
 SOURCE_EXT = {".wav", ".flac"}
 
@@ -30,6 +30,12 @@ def main():
         before += src.stat().st_size
         after += dst.stat().st_size
         print(f"{dst}  {dst.stat().st_size / 1e6:.1f} MB")
+    for folder in sorted({src.parent for src in files}):
+        info = read_stems_info(folder)
+        if info:  # keep the record of which model made these stems
+            info = {k: v for k, v in info.items() if k != "version"}
+            info.update(format=PRODUCT_EXT.lstrip("."), converted_from=folder.as_posix())
+            write_stems_info(args.destination / folder.relative_to(args.source), **info)
     print(f"{len(files)} files: {before / 1e6:.0f} MB -> {after / 1e6:.0f} MB")
 
 

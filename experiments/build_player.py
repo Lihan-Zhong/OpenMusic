@@ -50,7 +50,7 @@ SERVER_PORT = 8765
 TEXT = {
     "zh": {
         "title": "练习播放器", "song": "歌曲", "position": "位置", "key": "调",
-        "switch": "<b>中文</b> | <a href='player.en.html'>English</a>",
+        "switch": "<b>中文</b> | <a href='player.en.html'>English</a>", "home": "← 工作台", "lang_code": "zh",
         "filewarn": "这个页面要通过本地服务器打开（浏览器不允许从 file:// 运行音频处理模块）。"
                     "在项目文件夹里运行 <code>.venv/bin/python -m http.server {port}</code>"
                     "（Windows：<code>.venv\\Scripts\\python -m http.server {port}</code>），"
@@ -89,7 +89,7 @@ TEXT = {
     },
     "en": {
         "title": "Practice player", "song": "Song", "position": "Position", "key": "Key",
-        "switch": "<a href='player.html'>中文</a> | <b>English</b>",
+        "switch": "<a href='player.html'>中文</a> | <b>English</b>", "home": "← Workbench", "lang_code": "en",
         "filewarn": "Open this page through a local server (browsers do not run the audio worklet from file://). "
                     "In the project folder run <code>.venv/bin/python -m http.server {port}</code> "
                     "(Windows: <code>.venv\\Scripts\\python -m http.server {port}</code>), "
@@ -173,6 +173,8 @@ def render(lang, songs, out):
     return (PAGE.replace("__LANG__", "zh-CN" if lang == "zh" else "en")
                 .replace("__TITLE__", text["title"])
                 .replace("__SWITCH__", text["switch"])
+                .replace("__HOME__", text["home"])
+                .replace("__LANG_CODE__", text["lang_code"])
                 .replace("__FILEWARN__", text["filewarn"])
                 .replace("__CONFIG__", blob))
 
@@ -230,6 +232,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; pad
 header h1 { font-size: 18px; margin: 0; font-weight: 650; }
 header h1 span { color: var(--muted); font-weight: 400; }
 header .lang { margin-left: auto; color: var(--muted); }
+header .home { font-size: 14px; white-space: nowrap; }
 a { color: var(--accent); }
 select, input, button { font: inherit; color: inherit; }
 select, input[type=number] { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
@@ -299,11 +302,16 @@ code { background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
 </head>
 <body>
 <header>
+  <a id="home" class="home" href="/?lang=__LANG_CODE__" hidden>__HOME__</a>
   <h1>OpenMusic <span>· __TITLE__</span></h1>
   <select id="song" aria-label="song"></select>
   <div class="lang">__SWITCH__</div>
 </header>
 <main>
+<script>
+// Served by the workbench (experiments/app.py)? Then offer the way back to it; a plain http.server has no /api.
+fetch('/api/state').then(r => { if (r.ok) document.getElementById('home').hidden = false; }).catch(() => {});
+</script>
 <div id="filewarn" class="panel" hidden><p>__FILEWARN__</p></div>
 <div id="app">
   <p id="status" class="status"></p>

@@ -1,4 +1,5 @@
 """Shared helpers for the separation experiments: paths, audio I/O, the 3-stem target set, SDR scoring."""
+import json
 import os
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ RESULTS = ROOT / "results"          # RESULTS/<method>_<split>.json
 # compare methods by ear stays lossless FLAC, since compression artifacts would blur the differences.
 PRODUCT_EXT = ".mp3"
 LOSSLESS_EXT = ".flac"
+STEMS_INFO = "stems.json"  # <song folder>/stems.json records which model made the stems
 
 # Keep every download (model weights, caches) inside the project folder.
 os.environ.setdefault("TORCH_HOME", str(ROOT / ".cache" / "torch"))
@@ -73,6 +75,19 @@ def save(path, y, sr=SR):
             f.write(y.T)  # no title tag: libsndfile writes tags as Latin-1, which garbles Chinese names
     else:
         sf.write(str(path), y.T, sr, subtype="PCM_16")
+
+
+def write_stems_info(folder, model, **extra):
+    """Record how a song's stems were made (model name and details), next to the stems."""
+    info = {"version": 1, "model": model, **extra}
+    Path(folder, STEMS_INFO).write_text(json.dumps(info, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def read_stems_info(folder):
+    try:
+        return json.loads(Path(folder, STEMS_INFO).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def sdr(ref, est, eps=1e-8):
