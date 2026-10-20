@@ -43,6 +43,24 @@ sample, which comes with the true separated stems.
 \* MUSDB18 has no separate guitar or piano stems, so for the 6-stem models guitar + piano + other are
 scored together as "other". Guitar quality can only be judged by ear.
 
+## Comparison with Ultimate Vocal Remover (UVR)
+
+[UVR](https://github.com/Anjok07/ultimatevocalremovergui) is the most popular open-source stem separation app. This compares only what each project is for (as of October 2026):
+
+| | UVR | OpenMusic |
+|---|---|---|
+| Purpose | A separation workstation: produce high-quality stem files with many models, for mixing, covers and production | A practice tool: split a song, then mute, solo and compare the stems in a local web page, for musicians practising |
+| Form | Desktop app with installers for Windows / macOS / Linux | Python scripts + a local web page |
+| Models | Many architectures (VR, MDX-Net, MDX23C, Demucs and more), mostly trained by the UVR developers apart from Demucs | Demucs and BS-RoFormer-SW, plus six classical signal-processing methods for comparison |
+| Combining models | Yes (Ensemble) | Fusion of the classical methods (`combo`); none yet for the AI models |
+| Quality evaluation | Listening by the user | Built-in scoring (SDR on MUSDB18 test clips) and Chinese/English listening pages |
+| Speed / pitch change | Tools based on Rubber Band that process and write new files | Planned as real-time adjustment during playback (not built yet) |
+| Guitar | One guitar stem via Demucs 6-stem; no model that splits several guitars | Likewise one guitar stem (Demucs 6-stem or RoFormer-SW) |
+| Output | Stem files | MP3 by default for finished stems, lossless FLAC for comparison |
+| Licence | MIT code (credit UVR when using its models) | AGPL-3.0 |
+
+The two complement each other: for the most models and the best possible stem files, use UVR; to practise right after splitting and compare methods objectively, use OpenMusic.
+
 ## Layout
 
 ```
