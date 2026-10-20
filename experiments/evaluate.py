@@ -8,7 +8,7 @@ where mix and every returned stem are float arrays shaped (2, samples). The meth
 
     python experiments/evaluate.py hpss                       # tune on the 40 train clips
     python experiments/evaluate.py hpss --split test          # final score on the 50 test clips
-    python experiments/evaluate.py hpss --split test --song   # also write stems for data/song_excerpts/*.wav
+    python experiments/evaluate.py hpss --split test --song   # also write lossless FLAC stems for data/song_excerpts/*.wav
 """
 import argparse
 import importlib.util
@@ -17,7 +17,7 @@ import time
 
 import numpy as np
 
-from common import EXCERPTS, OUTPUTS, RESULTS, ROOT, SR, STEMS, load, load_track, save, sdr, tracks
+from common import EXCERPTS, LOSSLESS_EXT, OUTPUTS, RESULTS, ROOT, SR, STEMS, load, load_track, save, sdr, tracks
 
 
 def load_method(name):
@@ -57,7 +57,7 @@ def render_songs(name, separate):
     for path in sorted(EXCERPTS.glob("*.wav")):
         est = run(separate, load(path))
         for s in STEMS:
-            save(OUTPUTS / name / path.stem / f"{s}.wav", est[s])
+            save(OUTPUTS / name / path.stem / f"{s}{LOSSLESS_EXT}", est[s])
         print(f"wrote {OUTPUTS / name / path.stem}/")
 
 

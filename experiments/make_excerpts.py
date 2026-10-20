@@ -2,15 +2,17 @@
 
 The excerpt is the 60 s window with the most vocal energy among seconds where drums are playing,
 so every method gets judged on a stretch that has vocals, drums and band together.
-Writes outputs/demucs_ai_full/<song>/<stem>.wav and data/song_excerpts/<song>.wav (+ excerpts.json).
+Writes outputs/demucs_ai_full/<song>/<stem>.mp3 (.flac with --lossless) and
+data/song_excerpts/<song>.wav (+ excerpts.json).
 """
+import argparse
 import importlib.util
 import json
 import time
 
 import numpy as np
 
-from common import EXCERPTS, OUTPUTS, ROOT, SR, STEMS, load, save
+from common import EXCERPTS, LOSSLESS_EXT, OUTPUTS, PRODUCT_EXT, ROOT, SR, STEMS, load, save
 
 WINDOW_S = 60
 AUDIO = {".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg"}
@@ -22,6 +24,10 @@ def per_second_energy(y):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lossless", action="store_true", help="write full-song stems as FLAC instead of MP3")
+    ext = LOSSLESS_EXT if parser.parse_args().lossless else PRODUCT_EXT
+
     spec = importlib.util.spec_from_file_location("demucs_ai", ROOT / "experiments/methods/demucs_ai.py")
     demucs_ai = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(demucs_ai)
@@ -33,7 +39,7 @@ def main():
         est = demucs_ai.separate(mix, SR)
         took = time.perf_counter() - start
         for s in STEMS:
-            save(OUTPUTS / "demucs_ai_full" / path.stem / f"{s}.wav", est[s])
+            save(OUTPUTS / "demucs_ai_full" / path.stem / f"{s}{ext}", est[s])
 
         vocals, drums = per_second_energy(est["vocals"]), per_second_energy(est["drums"])
         playing = drums > 0.1 * np.median(drums[drums > 0]) if np.any(drums > 0) else np.ones_like(drums, bool)

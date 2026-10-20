@@ -9,8 +9,13 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 GT = DATA / "gt"                    # GT/<split>/<track>/{mixture,vocals,drums,other}.wav
 EXCERPTS = DATA / "song_excerpts"   # 60 s excerpts of the user's songs, for listening
-OUTPUTS = ROOT / "outputs"          # OUTPUTS/<method>/<song>/<stem>.wav
+OUTPUTS = ROOT / "outputs"          # OUTPUTS/<method>/<song>/<stem>.{flac,mp3}
 RESULTS = ROOT / "results"          # RESULTS/<method>_<split>.json
+
+# Output formats: finished full-song stems are MP3 by default (small, for practice); anything used to
+# compare methods by ear stays lossless FLAC, since compression artifacts would blur the differences.
+PRODUCT_EXT = ".mp3"
+LOSSLESS_EXT = ".flac"
 
 # Keep every download (model weights, caches) inside the project folder.
 os.environ.setdefault("TORCH_HOME", str(ROOT / ".cache" / "torch"))
@@ -47,10 +52,20 @@ def _decode_av(path, sr):
 
 
 def save(path, y, sr=SR):
+    """Write (2, samples) audio; the format follows the extension: .wav / .flac (16-bit) or .mp3.
+
+    MP3 is LAME VBR at about V2 (~190-215 kbps on dense stems, ~30 kbps on near-silent ones), the usual
+    "transparent" setting; its length stays sample-exact, so stems written this way still line up.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     y = np.clip(np.asarray(y, dtype=np.float32), -1.0, 1.0)
-    sf.write(str(path), y.T, sr, subtype="PCM_16")
+    if path.suffix.lower() == ".mp3":
+        with sf.SoundFile(str(path), "w", sr, y.shape[0], format="MP3", subtype="MPEG_LAYER_III",
+                          bitrate_mode="VARIABLE", compression_level=0.2) as f:
+            f.write(y.T)  # no title tag: libsndfile writes tags as Latin-1, which garbles Chinese names
+    else:
+        sf.write(str(path), y.T, sr, subtype="PCM_16")
 
 
 def sdr(ref, est, eps=1e-8):

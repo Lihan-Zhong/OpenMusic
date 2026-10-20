@@ -8,6 +8,10 @@ so guitar + piano + other are summed into other4 for scoring. Guitar is judged b
 
     python experiments/evaluate_multi.py demucs6 --split test --song     # 50 test clips + 60 s excerpts
     python experiments/evaluate_multi.py demucs6 --full                  # also split every full song in songs/
+    python experiments/evaluate_multi.py demucs6 --full --lossless       # full songs as FLAC instead of MP3
+
+Excerpt stems (--song) are for comparing methods by ear, so they are always lossless FLAC.
+Full-song stems (--full) are the finished product: MP3 by default, FLAC with --lossless.
 """
 import argparse
 import importlib.util
@@ -16,7 +20,7 @@ import time
 
 import numpy as np
 
-from common import EXCERPTS, OUTPUTS, RESULTS, ROOT, SR, load, save, sdr, tracks
+from common import EXCERPTS, LOSSLESS_EXT, OUTPUTS, PRODUCT_EXT, RESULTS, ROOT, SR, load, save, sdr, tracks
 
 SCORED = ("vocals", "drums", "bass", "other4")
 AUDIO = {".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg"}
@@ -49,6 +53,7 @@ def main():
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--song", action="store_true", help="render the 60 s song excerpts")
     parser.add_argument("--full", action="store_true", help="render every full song in songs/")
+    parser.add_argument("--lossless", action="store_true", help="write full-song stems as FLAC instead of MP3")
     args = parser.parse_args()
     separate = load_method(args.method)
 
@@ -71,16 +76,17 @@ def main():
     if args.song:
         for path in sorted(EXCERPTS.glob("*.wav")):
             for k, v in run(separate, load(path)).items():
-                save(OUTPUTS / args.method / path.stem / f"{k}.wav", v)
+                save(OUTPUTS / args.method / path.stem / f"{k}{LOSSLESS_EXT}", v)
             print(f"wrote {OUTPUTS / args.method / path.stem}/")
     if args.full:
+        ext = LOSSLESS_EXT if args.lossless else PRODUCT_EXT
         for path in sorted(p for p in (ROOT / "songs").iterdir() if p.suffix.lower() in AUDIO):
             mix = load(path)
             t0 = time.perf_counter()
             est = run(separate, mix)
             took = time.perf_counter() - t0
             for k, v in est.items():
-                save(OUTPUTS / f"{args.method}_full" / path.stem / f"{k}.wav", v)
+                save(OUTPUTS / f"{args.method}_full" / path.stem / f"{k}{ext}", v)
             print(f"{path.name}: {mix.shape[1] / SR:.0f} s song split in {took:.1f} s")
 
 

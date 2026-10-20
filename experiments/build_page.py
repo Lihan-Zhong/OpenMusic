@@ -26,7 +26,7 @@ import numpy as np  # noqa: E402
 from common import RESULTS, ROOT, load  # noqa: E402
 
 STEM_ORDER = ("vocals", "drums", "bass", "guitar", "piano", "other")
-AUDIO_EXT = (".wav", ".flac")
+AUDIO_EXT = (".flac", ".wav")  # newer runs write FLAC; prefer it over leftover WAVs
 PAGES = {"zh": "compare.html", "en": "compare.en.html"}
 
 TEXT = {

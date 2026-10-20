@@ -31,4 +31,6 @@ Set up per README, put the user's songs in `songs/`, then run
   Apache-2.0, LGPL, GPL-3.0 are fine; avoid GPL-2.0-only, non-commercial or proprietary code).
   README is bilingual and Chinese is the default language: README.md is Chinese (shown by GitHub),
   README.en.md is English. Keep them in sync.
+- Output formats (the user's rule): finished full-song stems default to MP3 (`--lossless` for FLAC);
+  anything used to compare methods by ear stays lossless FLAC. Keep stems sample-aligned.
 - On the 16 GB Mac, run at most one heavy model job at a time.

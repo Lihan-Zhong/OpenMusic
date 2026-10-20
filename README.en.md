@@ -54,6 +54,7 @@ experiments/
   evaluate.py         score a 3-stem method: python experiments/evaluate.py <method> --split test --song
   evaluate_multi.py   score a multi-stem model: python experiments/evaluate_multi.py <model> --split test --song --full
   verify_scores.py    re-score methods from scratch and compare with the stored results
+  export_mp3.py       convert existing lossless stems (WAV/FLAC) to MP3, keeping the folder layout
   oracle.py           the ceiling (ideal ratio mask)
   build_page.py       build the listening pages compare.html (Chinese) and compare.en.html (English)
   methods/            3-stem methods, one separate(mix, sr) per file
@@ -108,6 +109,12 @@ Put your mp3 files in `songs/`, then:
 .venv/bin/python experiments/build_page.py
 ```
 Model weights download to `.cache/` on first use (Demucs about 80 MB, RoFormer-SW about 700 MB).
+
+**Output formats:**
+- Full-song stems (`--full`) are the finished product for practice and default to **MP3** (VBR about V2, roughly 1/3 the size of lossless, no audible difference). Add `--lossless` to get FLAC.
+- The 60 s comparison excerpts (`--song`) are **always lossless FLAC**, because compression artifacts would blur the differences between methods.
+- To convert existing lossless stems to MP3: `.venv/bin/python experiments/export_mp3.py <lossless stems folder> <output folder>`.
+- Stems in every format are sample-exact in length, so they stay in sync when played together.
 
 **4. Listen**
 

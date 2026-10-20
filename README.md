@@ -49,6 +49,7 @@ experiments/
   evaluate.py         给 3 轨方法打分：python experiments/evaluate.py <方法> --split test --song
   evaluate_multi.py   给多轨模型打分：python experiments/evaluate_multi.py <模型> --split test --song --full
   verify_scores.py    从头重新打分，和已存的结果对比
+  export_mp3.py       把已有的无损分轨（WAV/FLAC）转成 MP3，保持文件夹结构
   oracle.py           理论上限（理想频谱遮罩）
   build_page.py       生成对比试听页 compare.html（中文）和 compare.en.html（英文）
   methods/            3 轨方法：每个文件一个 separate(mix, sr)
@@ -101,6 +102,12 @@ curl -L -o data/MUSDB18-7-STEMS.zip https://github.com/sigsep/sigsep-mus-db/rele
 .venv/bin/python experiments/build_page.py
 ```
 模型权重第一次运行时会自动下载到 `.cache/`（Demucs 约 80 MB，RoFormer-SW 约 700 MB）。
+
+**输出格式：**
+- 整首歌的分轨（`--full`）是拿来练习的成品，默认存成 **MP3**（VBR 约 V2，大小约为无损的 1/3，听感无差别）。加 `--lossless` 存成无损 FLAC。
+- 60 秒对比片段（`--song`）是用来对比方法的，**一律是无损 FLAC**，因为压缩痕迹会盖住方法之间的差别。
+- 已有的无损分轨想转 MP3：`.venv/bin/python experiments/export_mp3.py <无损分轨文件夹> <输出文件夹>`。
+- 所有格式的分轨长度都精确到采样点，几轨一起播放时保持同步。
 
 **4. 试听**
 
