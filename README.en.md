@@ -49,8 +49,10 @@ Once a song is split into stems, practise with it in a local web page:
   (usually the relative major/minor); a chord lane on the timeline showing the current and next chord.
 - **Speed change without pitch change**, 50%–150%; drag across the waveform to give a passage its own speed,
   e.g. 70% for the hard part. Pitch shift in semitones and cents.
-- **Practice tools**: A-B loop, a speed trainer (each loop a little faster), count-in, and a metronome that
-  clicks on the song's own beats.
+- **Practice tools**: A-B loop (drag across the waveform, or press "Set A" and "Set B" while listening; Esc,
+  the ✕ or a double-click on the loop clears it), a speed trainer (each loop a little faster, and back to your
+  speed when you switch it off), count-in, and a metronome that clicks on the song's own beats. Settings are
+  kept per song; when you reopen a song the page says what came back, and "Reset this song" clears it all.
 - **Transcription**: every stem is turned into MIDI; the page shows a piano roll with note names and the notes
   sounding now. The MIDI carries the song's tempo changes and has exactly the player's beats and bar lines, so
   bars line up when imported into Guitar Pro or MuseScore. Bass is the most accurate; guitar and piano are
@@ -60,7 +62,8 @@ Once a song is split into stems, practise with it in a local web page:
   accurate (F about 0.9 / 0.8 on real recordings split from the mix), hi-hat is a draft, toms and cymbals are
   hints; with the optional ADTOF-pytorch plugin (see "Optional plugin" below) hi-hat and cymbals are much better.
   How it works, the options we looked at and the scores are in [docs/drums.en.md](docs/drums.en.md).
-- **Shortcuts**: space play/pause, L loop on/off, `[` `]` speed, ← → one bar back/forward, M metronome.
+- **Shortcuts**: space play/pause, L loop on/off, A / B set loop start / end, Esc clear loop, `[` `]` speed,
+  ← → one bar back/forward, M metronome, Home back to start.
 
 The workbench above is the easiest way. You can also run the steps one by one in a terminal (with RoFormer
 stems; every song in `songs/` is processed):
@@ -114,9 +117,6 @@ piano roll).
   at the same time.
 - **Chords, key, title**: the detected chord names sit above the staff; title, artist, key and tempo are in the
   file's score information.
-- It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The file name is always the
-  song's real name; track and chord names are plain ASCII.
-- How: PyGuitarPro lays the score out in memory; alphaTab (included in `experiments/vendor/alphatab/`, run inside
 - **The song's audio track**: the file carries the original recording (the file in `songs/`, as it is, not
   re-encoded) as a Guitar Pro 8 audio track, with a sync point at the start of every bar taken from the detected
   bar lines. Bar N lines up with the same place in the player, and the score plays along with the recording.
@@ -124,6 +124,9 @@ piano roll).
   `--audio none` no audio. This makes the files bigger: about 5-16 MB for a 2-7 minute song.
 - **Guitar muted**: the guitar transcription is busy, so its track starts muted (the tab shows as usual); bass,
   drums and vocals play. Unmute it in Guitar Pro's mixer.
+- It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The file name is always the
+  song's real name; track and chord names are plain ASCII.
+- How: PyGuitarPro lays the score out in memory; alphaTab (included in `experiments/vendor/alphatab/`, run inside
   Python by mini-racer, so no Node.js or browser is needed) writes it as the .gp, which is read back to check the
   title, bars, tempo, every track's notes, the muted tracks, the audio track and every sync point. The older .gp5
   format is not used: Guitar Pro reads its text in a single-byte code page (also on a Mac), so Chinese titles

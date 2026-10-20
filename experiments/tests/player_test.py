@@ -22,6 +22,9 @@ committed time map:
   ui     mouse drags on the waveform (loop, speed region, snapped to bars; over a switched-off loop; a speed region
          inside a loop), removing the loop (✕ on the waveform, Esc, button), keys (also pressed quickly), solo,
          reload keeps settings, a count-in started between two beats stays in time
+  ux     a shaky click seeks, drags end at the mouse, A / B keys, the loop readout, double-click clears the loop,
+         focus (slider arrows, Enter in a number box), the trainer gives the speed back, 原调, speed-region hint,
+         the language link keeps the song, the restored-settings notice and 本曲恢复默认
   --cpu  6 real stems rendered offline: CPU share, and magnitude-spectrogram fidelity of each stem (alone,
          soloed, and summed) against the time-warped original, which is fair to a phase vocoder
 Exit code 1 if a check fails.
@@ -123,6 +126,9 @@ def make_songs():
     (sync / "transcription" / "guitar.notes.json").write_text(json.dumps(
         {"version": 1, "stem": "guitar", "notes": notes, "pitch_range": [40, 76], "method": "synthetic"}), encoding="utf-8")
     (sync / "transcription" / "guitar.mid").write_bytes(midi_file(notes))
+    phrase = [[float(t), float(t + 0.4), int(p), 90] for t, p in zip(np.arange(2.0, 5.0, 0.5), (60, 62, 64, 65, 67, 69))]
+    (sync / "transcription" / "vocals.notes.json").write_text(json.dumps(   # one phrase, then 35 s without notes
+        {"version": 1, "stem": "vocals", "notes": phrase, "pitch_range": [60, 69], "method": "synthetic"}), encoding="utf-8")
     hits = [[float(t), float(t + 0.1), 42, 80] for t in np.arange(0.5, SYNC_SECONDS - 0.5, BEAT / 2)]
     hits += [[float(t), float(t + 0.1), 36 if i % 2 == 0 else 38, 110] for i, t in enumerate(CLICKS)]
     (sync / "transcription" / "drums.notes.json").write_text(json.dumps(
@@ -685,6 +691,243 @@ def run_memory(browser, base, problems):
             "song_position_after_play": round(pos, 2), "limiter_unity": rnd(unity), "limiter_bass_plus_12db": rnd(boosted)}
 
 
+def run_ux(browser, base, problems):
+    """The usability fixes: clicks vs drags, A/B keys, focus, trainer, resets, readouts (fresh page, bars every 2 s)."""
+    page = open_page(browser, f"{base}player.html?song=sync", problems)
+    page.on("dialog", lambda d: d.accept())
+    box = page.locator("#wave").bounding_box()
+    dur = page.evaluate("() => window.player.tr.duration")
+    x_of = lambda t: box["x"] + t / dur * box["width"]  # noqa: E731
+    y = box["y"] + box["height"] * 0.4
+    state = "() => { const tr = window.player.tr; return {loop: tr.loop, regions: tr.regions, speed: tr.speed, semis: tr.semis, x: tr.position()}; }"
+    js = page.evaluate
+    r2 = lambda v: round(v, 2)  # noqa: E731
+    no_loop = {"on": False, "a": 0, "b": 0}
+    res = {}
+
+    def press_move(t, dx, steps=4):
+        page.mouse.move(x_of(t), y)
+        page.mouse.down()
+        for k in range(1, steps + 1):
+            page.mouse.move(x_of(t) + dx * k / steps, y)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+
+    def blur():                                          # a select changed without the mouse keeps the focus
+        js("() => document.activeElement.blur()")
+    heights = {"fresh": js("() => document.getElementById('transport').offsetHeight")}
+    press_move(20, 8)                                   # below the 10 px drag threshold: a click
+    st = js(state)
+    res["shaky_click"] = {"loop": st["loop"], "x": r2(st["x"])}
+    press_move(30, 11)                                  # a drag, but under 12 px once corrected: still a click
+    st = js(state)
+    res["shaky_drag"] = {"loop": st["loop"], "x": r2(st["x"])}
+    page.select_option("#snap", "off")
+    blur()
+    press_move(10, x_of(20) - x_of(10), steps=12)       # unsnapped drag 10 -> 20 s: the loop ends where the mouse did
+    lp = js(state)["loop"]
+    res["unsnapped_drag"] = [r2(lp["a"]), r2(lp["b"])]
+    press_move(36, x_of(30) - x_of(36), steps=12)       # and a leftward one, 36 -> 30 s
+    lp = js(state)["loop"]
+    res["leftward_drag"] = [r2(lp["a"]), r2(lp["b"])]
+    page.mouse.move(x_of(20), y)                         # one that turns back past its start: 20 -> 23 -> 17 s
+    page.mouse.down()
+    for t in (20.5, 21.5, 23, 21.5, 20, 18.5, 17):
+        page.mouse.move(x_of(t), y)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    lp = js(state)["loop"]
+    res["turned_drag"] = [r2(lp["a"]), r2(lp["b"])]
+    page.keyboard.press("Escape")
+    page.select_option("#snap", "bar")
+    blur()
+    js("() => window.player.tr.seek(10.2)")
+    page.keyboard.press("a")                             # A at 10.2 s -> bar line 10.5, B two bars later
+    res["after_a"] = js(state)["loop"]
+    js("() => window.player.tr.seek(13.1)")
+    page.keyboard.press("b")                             # B at 13.1 s -> 12.5, and the playhead goes back to A
+    page.wait_for_timeout(200)                           # the readouts follow on the next frame
+    st = js(state)
+    res["after_b"] = {"loop": st["loop"], "x": r2(st["x"])}
+    res["loop_info"] = page.inner_text("#loop-info")
+    heights["loop"] = js("() => document.getElementById('transport').offsetHeight")
+    js("() => window.player.tr.seek(30)")
+    page.wait_for_timeout(200)
+    res["loop_info_outside"] = page.inner_text("#loop-info")
+    heights["outside"] = js("() => document.getElementById('transport').offsetHeight")
+    # a shaky click on the live loop seeks and leaves the loop where it is
+    press_move(11.5, 5)
+    st = js(state)
+    res["shaky_click_on_loop"] = {"loop": st["loop"], "x": r2(st["x"])}
+    # Esc on a focused control only leaves it; the next Esc clears the loop
+    page.focus("#speed")
+    page.keyboard.press("Escape")
+    res["esc_leaves_slider"] = {"focus": js("() => document.activeElement.tagName"), "loop": js(state)["loop"]}
+    page.locator("#wave [part~=loop]").dblclick()         # double-click on the loop removes it
+    res["after_dblclick"] = js(state)["loop"]
+    js("() => window.player.tr.seek(39.8)")
+    page.keyboard.press("a")                             # A at the very end still makes a loop
+    res["a_at_end"] = js(state)["loop"]
+    page.keyboard.press("Escape")
+    # keyboard: a slider reached with Tab keeps its arrow keys; Enter in a number box gives the keys back
+    x0 = js(state)["x"]
+    page.focus("#speed")
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowRight")
+    st = js(state)
+    res["slider_keys"] = {"speed": st["speed"], "moved": r2(st["x"] - x0)}
+    page.keyboard.press("Escape")
+    page.click("#speed-n", click_count=3)
+    page.keyboard.type("85")
+    page.keyboard.press("Enter")
+    res["focus_after_enter"] = js("() => document.activeElement.tagName")
+    page.keyboard.press(" ")
+    page.wait_for_timeout(400)
+    res["space_after_enter"] = js("() => window.player.tr.playing")
+    page.keyboard.press(" ")
+    page.wait_for_timeout(300)
+    page.click("#speed-n", click_count=3)
+    page.keyboard.type("55")
+    page.keyboard.press("Escape")                        # Esc cancels what was typed
+    res["esc_cancels_typing"] = js(state)["speed"]
+    page.dispatch_event("#speed", "dblclick")            # double-click: back to 100 %
+    res["speed_after_dblclick"] = js(state)["speed"]
+    page.focus("#snap")
+    page.keyboard.press("Escape")                        # Esc leaves a select
+    res["esc_leaves_select"] = js("() => document.activeElement.tagName")
+    # Space after clicking a download link plays and does not scroll the page
+    js("""() => document.querySelectorAll('a[download]').forEach(a => a.addEventListener('click', e => e.preventDefault()))""")
+    page.click("#roll-midi a")
+    js("() => window.scrollTo(0, 0)")
+    page.keyboard.press(" ")
+    page.wait_for_timeout(300)
+    res["space_after_link"] = {"playing": js("() => window.player.tr.playing"), "scroll": js("() => scrollY")}
+    page.keyboard.press(" ")
+    page.wait_for_timeout(300)
+    # speed trainer: it gives the speed back when switched off (box, L, Esc), refuses start >= target, counts passes
+    js("() => { const tr = window.player.tr; window.player.ui.setSpeed(0.9); tr.trainer.start = 0.6; tr.trainer.target = 0.8; }")
+    page.check("#trainer")
+    res["trainer_on"] = {"speed": js(state)["speed"], "status": page.inner_text("#trainer-status")}
+    page.uncheck("#trainer")
+    res["speed_after_trainer"] = js(state)["speed"]
+    for key in ("l", "Escape"):
+        page.check("#trainer")
+        page.keyboard.press(key)
+        res[f"trainer_after_{key}"] = {"speed": js(state)["speed"], "checked": page.is_checked("#trainer")}
+    for start, target in ((0.9, 0.7), (0.8, 0.8)):
+        js(f"() => {{ const tr = window.player.tr; tr.trainer.start = {start}; tr.trainer.target = {target}; }}")
+        page.click("#trainer")
+        res[f"trainer_bad_{start}_{target}"] = {"checked": page.is_checked("#trainer"), "status": page.inner_text("#trainer-status")}
+    js("""() => { const tr = window.player.tr; tr.trainer.start = 0.6; tr.trainer.target = 0.8; tr.trainer.step = 0.05;
+        tr.trainer.every = 1; tr.loop = {on: true, a: 10.5, b: 12.5}; window.player.ui.drawRegions(); }""")
+    page.check("#trainer")
+    js("() => { const tr = window.player.tr; tr.seek(10.5); tr.play(); }")
+    page.wait_for_timeout(4200)                          # one pass of a 2 s bar at 60 % takes 3.3 s
+    res["trainer_pass_2"] = {"speed": js(state)["speed"], "status": page.inner_text("#trainer-status")}
+    js("() => window.player.tr.pause()")
+    page.uncheck("#trainer")
+    page.keyboard.press("Escape")
+    # pitch: 原调 resets it; the transport chips say what is changed
+    js("() => { document.getElementById('pitch-n').value = -2; window.player.ui.setPitch(); }")
+    page.wait_for_timeout(200)
+    res["chips"] = page.inner_text("#chips")
+    heights["chips"] = js("() => document.getElementById('transport').offsetHeight")
+    page.click("#pitch-reset")
+    res["semis_after_reset"] = js(state)["semis"]
+    # a speed region under the playhead is explained, and its row is lit
+    js("""() => { const u = window.player.ui; u.setSpeedRegion(16.5, 18.5, 0.8); u.setSpeedRegion(20.5, 24.5, 0.7);
+        u.afterRegionEdit(); window.player.tr.seek(22); }""")
+    page.wait_for_timeout(300)
+    res["speed_note"] = js("() => document.getElementById('speed-note').textContent")
+    res["region_row_lit"] = js("() => [...document.querySelectorAll('#regionlist .item')].findIndex(r => r.classList.contains('now'))")
+    res["lang_link"] = js("() => document.querySelector('header .lang a').getAttribute('href')")
+    # before the first beat the position card shows no beat
+    js("() => window.player.tr.seek(0.1)")
+    page.wait_for_timeout(200)
+    res["bar_before_first_beat"] = page.inner_text("#f-bar")
+    # a seek during the count-in counts in again from the new spot
+    js("() => { const tr = window.player.tr; tr.countInOn = true; tr.seek(10.5); tr.play(); }")
+    page.wait_for_timeout(400)
+    first = js("() => window.player.tr.countInfo && window.player.tr.countInfo.from")
+    js("() => window.player.tr.seek(14.5)")
+    page.wait_for_timeout(400)
+    res["count_in_again"] = {"first": first, "second": js("() => window.player.tr.countInfo && window.player.tr.countInfo.from")}
+    js("() => { const tr = window.player.tr; tr.pause(); tr.countInOn = false; }")
+    # the piano roll's pitch axis stays put while it plays through a passage with no notes
+    js("() => { const r = document.getElementById('roll'); r.value = 'vocals'; r.onchange(); window.player.tr.seek(3); }")
+    page.wait_for_timeout(400)
+    js("() => { const tr = window.player.tr; tr.seek(15); tr.play(); }")
+    page.wait_for_timeout(300)
+    range_a = js("() => document.getElementById('detail').dataset.range")
+    page.wait_for_timeout(1500)
+    res["roll_range_in_gap"] = [range_a, js("() => document.getElementById('detail').dataset.range")]
+    js("() => window.player.tr.pause()")
+    js("() => window.player.ui.setSpeed(0.9)")
+    page.reload()                                        # at once: the change is saved when the page goes away
+    page.wait_for_function("document.documentElement.dataset.ready === '1'")
+    res["speed_after_quick_reload"] = js(state)["speed"]
+    res["restored_notice"] = js("() => !document.getElementById('restored').hidden && document.getElementById('restored-text').textContent")
+    page.keyboard.press("]")                             # any change: the notice is no longer true, so it goes
+    page.wait_for_timeout(200)
+    res["notice_after_change"] = js("() => document.getElementById('restored').hidden")
+    page.click("#reset-song-2")
+    page.wait_for_timeout(200)
+    st = js(state)
+    res["after_reset_song"] = {"loop": st["loop"], "regions": st["regions"], "speed": st["speed"]}
+    page.close()
+    # an unknown ?song= says so and loads nothing (no silent fallback to the first, maybe longest, song)
+    page = open_page(browser, f"{base}player.html?song=no-such-song", problems)
+    res["unknown_song"] = {"error": page.evaluate("() => document.getElementById('status').classList.contains('err')"),
+                           "text": page.inner_text("#status"), "loaded": page.evaluate("() => !!window.player")}
+    page.close()
+    ok_click = lambda r, t: r["loop"] == no_loop and abs(r["x"] - t) < 0.6  # noqa: E731
+    checks = {
+        "a shaky click (8 px, or an 11 px drag) seeks and makes no loop": ok_click(res["shaky_click"], 20)
+        and ok_click(res["shaky_drag"], 30),
+        "unsnapped drags run from the press to the release, both ways and turned back": res["unsnapped_drag"] == [10, 20]
+        and res["leftward_drag"] == [30, 36] and res["turned_drag"] == [17, 20],
+        "A and B set the loop at the playhead, snapped to bars": res["after_a"] == {"on": True, "a": 10.5, "b": 14.5}
+        and res["after_b"]["loop"] == {"on": True, "a": 10.5, "b": 12.5} and res["after_b"]["x"] == 10.5,
+        "A at the very end of the song still makes a loop": res["a_at_end"]["on"] and res["a_at_end"]["b"] > res["a_at_end"]["a"],
+        "the loop readout shows times and bars, and says when the playhead is outside":
+            res["loop_info"] == "0:10.5–0:12.5 · 第 6 小节" and res["loop_info_outside"].endswith("（播放头在循环外）"),
+        "the transport keeps its height whatever its readouts say": len(set(heights.values())) == 1,
+        "a shaky click on the live loop seeks and leaves the loop": res["shaky_click_on_loop"]["loop"] == {"on": True, "a": 10.5, "b": 12.5}
+        and abs(res["shaky_click_on_loop"]["x"] - 11.5) < 0.6,
+        "Esc on a focused slider only leaves it": res["esc_leaves_slider"]["focus"] == "BODY" and res["esc_leaves_slider"]["loop"]["on"],
+        "a double-click on the loop removes it": res["after_dblclick"] == no_loop,
+        "a focused slider keeps its arrow keys": res["slider_keys"] == {"speed": 1.02, "moved": 0},
+        "Enter leaves a number box, then Space plays; Esc cancels typing": res["focus_after_enter"] == "BODY"
+        and res["space_after_enter"] and res["esc_cancels_typing"] == 0.85,
+        "Esc leaves a select": res["esc_leaves_select"] == "BODY",
+        "Space after clicking a download link plays and does not scroll": res["space_after_link"] == {"playing": True, "scroll": 0},
+        "double-click on the speed slider resets it": res["speed_after_dblclick"] == 1,
+        "the trainer starts at its start speed and gives the speed back (box, L, Esc)":
+            res["trainer_on"]["speed"] == 0.6 and "60%" in res["trainer_on"]["status"] and res["speed_after_trainer"] == 0.9
+            and res["trainer_after_l"] == res["trainer_after_Escape"] == {"speed": 0.9, "checked": False},
+        "the trainer refuses a start at or above the target": all(
+            not res[k]["checked"] and res[k]["status"] for k in ("trainer_bad_0.9_0.7", "trainer_bad_0.8_0.8")),
+        "the trainer counts its passes and steps the speed": res["trainer_pass_2"]["speed"] == 0.65
+        and "第 2 遍" in res["trainer_pass_2"]["status"],
+        "the transport shows what is changed; 原调 resets the pitch": "−2" in res["chips"] and res["semis_after_reset"] == 0,
+        "a speed region under the playhead is explained and its row lit": "70%" in res["speed_note"] and res["region_row_lit"] == 1,
+        "the language switch keeps the song": res["lang_link"].endswith("player.en.html?song=sync"),
+        "no beat is shown before the first beat": res["bar_before_first_beat"] == "",
+        "a seek during the count-in counts in again": bool(res["count_in_again"]["first"])
+        and (res["count_in_again"]["second"] or 0) > res["count_in_again"]["first"],
+        "the piano roll's pitch axis does not grow in a passage without notes":
+            res["roll_range_in_gap"][0] == res["roll_range_in_gap"][1]
+            and 14 <= int(res["roll_range_in_gap"][1].split("-")[1]) - int(res["roll_range_in_gap"][1].split("-")[0]) <= 20,
+        "a change right before a reload is kept": res["speed_after_quick_reload"] == 0.9,
+        "restored settings are announced in full, and the notice goes after a change": bool(res["restored_notice"])
+        and all(w in res["restored_notice"] for w in ("速度 90%", "2 个变速段")) and res["notice_after_change"],
+        "本曲恢复默认 clears the song's settings": res["after_reset_song"] == {"loop": no_loop, "regions": [], "speed": 1},
+        "an unknown song is reported and nothing is loaded": res["unknown_song"]["error"] and "no-such-song" in res["unknown_song"]["text"]
+        and not res["unknown_song"]["loaded"],
+    }
+    return res, checks
+
+
 def run_screens(browser, base, problems):
     SCREENS.mkdir(parents=True, exist_ok=True)
     shots = []
@@ -734,6 +977,8 @@ def main():
                 report["bare"], c = run_bare(browser, base, problems)
                 checks.update(c)
                 report["ui"], c = run_ui(browser, base, problems)
+                checks.update(c)
+                report["ux"], c = run_ux(browser, base, problems)
                 checks.update(c)
             if args.cpu:
                 report["cpu"] = run_cpu(browser, base, problems)

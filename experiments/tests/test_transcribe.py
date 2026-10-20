@@ -13,7 +13,8 @@ Scores are mir_eval note F-measures: onset within 50 ms and pitch within 50 cent
 the offset within 20 % of the note length or 50 ms ("F on+off"), and onset-only with octave errors forgiven
 ("F chroma"). The tempo-map checks read the MIDI back with mido and pretty_midi and need no audio; one of them
 runs made-up beat-tracker slips through analyze.py's clean-up first, as on a real song.
-Exits with status 1 if a score falls below its floor in FLOORS.
+Each case also checks that transcribing left the stem audio files byte for byte unchanged (it only reads them).
+Exits with status 1 if a score falls below its floor in FLOORS or a stem file changed.
 
     python experiments/tests/test_transcribe.py --songs outputs/mp3   # only check transcribed songs' MIDI files
 
@@ -21,6 +22,7 @@ Exits with status 1 if a score falls below its floor in FLOORS.
 beat per analysis beat, and MIDI bar lines exactly on its downbeats (so bar N is the same in the player).
 """
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -297,6 +299,12 @@ def scores(ref, est):
     return {"P": p, "R": r, "F onset": f_on, "F on+off": f_off, "F chroma": f_chroma, "onset err ms": err}
 
 
+def audio_hashes(folder):
+    """sha256 of every audio file in a song folder: transcribing must only read the stems, never change them."""
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(folder.iterdir())
+            if p.suffix.lower() in (".wav", ".flac", ".mp3")}
+
+
 def check_transcription(cases):
     print(f"\nTranscription (basic-pitch {transcribe.version('basic-pitch')}, settings per stem as in "
           "transcribe.SETTINGS):")
@@ -305,9 +313,13 @@ def check_transcription(cases):
     failures = []
     for case, (stem, _, ref, empty_spans) in cases.items():
         folder = TEST_ROOT / case
+        before = audio_hashes(folder)
         start = time.perf_counter()
         transcribe.transcribe_song(folder, transcribe.find_stems(folder), [stem], force=True)
         took = time.perf_counter() - start
+        if audio_hashes(folder) != before:
+            print(f"{case:24} the stem audio files CHANGED")
+            failures.append(f"{case} (stem audio changed)")
         out = folder / "transcription" / f"{stem}.notes.json"
         if not ref:
             ok = not out.exists()
