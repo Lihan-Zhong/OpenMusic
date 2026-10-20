@@ -15,6 +15,9 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
 - Drums: `drums.py` (onset candidates + MLP, weights experiments/models/drums.npz trained by `train_drums.py` on
   E-GMD CC BY 4.0 + `drum_synth.py` loops) -> transcription/drums.mid on channel 10; player drum lane. Held-out
   MDB Drums (Demucs-split): kick 0.90, snare 0.82, hi-hat 0.64, cymbals 0.49, toms 0.16 (docs/drums.md).
+  Optional plugin ADTOF-pytorch (user installs into git-ignored plugins/; weights CC BY-NC-SA, never commit or
+  import it): transcribe.py --drums auto uses its `adtof` CLI as a subprocess when installed (better on real
+  recordings: hi-hat 0.79, cymbals 0.83); drums.notes.json "backend" says which.
 - Workbench `experiments/app.py` (stdlib only, http://localhost:8780) is the main entry: upload to songs/ ->
   split (Demucs 6 or RoFormer via `evaluate_multi.py <model> --full --no-score --only=<song>`) -> analyze ->
   transcribe -> build_player, one job at a time; the player links back to it. Hardened: 127.0.0.1, Host check,

@@ -16,7 +16,9 @@ both the stem and analysis.json are kept unless --force.
 Drums: drums.py finds the hits of the drum stem (kick, snare, three toms, closed and open hi-hat, crash, ride)
 and drums.mid is a General MIDI drum track on channel 10 (kick 36, snare 38, toms 50 / 47 / 43, hi-hat 42 / 46,
 crash 49, ride 51), so Guitar Pro / MuseScore open it as a drum kit; each hit is 0.1 s long. Its notes.json has
-the GM note as "pitch" and also "kit": {GM note: name}.
+the GM note as "pitch" and also "kit": {GM note: name} and "backend". --drums picks who finds the hits: "builtin"
+(drums.py's own model), "adtof" (the optional ADTOF-pytorch plugin, which the user installs; see the README and
+drums.adtof_command), or "auto" (the default): the plugin when it is installed, else the built-in model.
 
 Pitched notes come from Spotify's Basic Pitch (basic-pitch 0.4.0, code and model Apache-2.0,
 https://github.com/spotify/basic-pitch): its ONNX model on onnxruntime and its own note decoding
@@ -41,6 +43,7 @@ each note keeps its time in seconds, so the MIDI lines up with the audio in a DA
 import argparse
 import json
 import logging
+import os
 import time
 from importlib.metadata import version
 from pathlib import Path
@@ -343,7 +346,11 @@ def read_analysis(song_dir):
         return None  # half-written or broken: fall back to a fixed tempo
 
 
-def method_text(stem, tempo_note):
+def method_text(stem, tempo_note, backend="builtin"):
+    if stem == "drums" and backend == "adtof-pytorch":
+        return (f"ADTOF-pytorch plugin (ADTOF Frame_RNN by Zehren, Alunno & Bientinesi, PyTorch port by Xavier "
+                f"Riley; weights CC BY-NC-SA 4.0) for the hits and 5 classes, drums.py for the piece within a class "
+                f"and the velocity; General MIDI drums on channel 10; MIDI: {tempo_note}")
     if stem == "drums":
         return (f"drums.py: onset candidates + a small neural network trained on E-GMD (CC BY 4.0), "
                 f"{len(drums.PIECES)} kit pieces as General MIDI drums on channel 10; MIDI: {tempo_note}")
@@ -361,14 +368,33 @@ def up_to_date(outputs, inputs):
     return min(p.stat().st_mtime for p in outputs) > max(p.stat().st_mtime for p in inputs if p.exists())
 
 
-def transcribe_song(song_dir, stems, wanted, force=False):
+def drum_backend(choice):
+    """("builtin" or "adtof-pytorch", the plugin's command or None) for --drums auto / builtin / adtof."""
+    command = drums.adtof_command() if choice != "builtin" else None
+    if choice == "adtof" and command is None:
+        where = os.environ.get(drums.ADTOF_ENV) or drums.ADTOF_DEFAULT
+        raise SystemExit(f"--drums adtof: the ADTOF-pytorch plugin is not installed (no {where}; set "
+                         f"${drums.ADTOF_ENV} to its adtof command); see the README")
+    return ("adtof-pytorch", command) if command else ("builtin", None)
+
+
+def stored_backend(json_path):
+    try:
+        return json.loads(json_path.read_text(encoding="utf-8")).get("backend", "builtin")
+    except (OSError, ValueError):
+        return None
+
+
+def transcribe_song(song_dir, stems, wanted, force=False, drums_choice="auto"):
     analysis = read_analysis(song_dir)
     knots, signatures, tempo_note = tempo_map(analysis)
     key = mido_key((analysis or {}).get("key"))
     out_dir = song_dir / "transcription"
     for stem in [s for s in wanted if s in stems]:
         mid_path, json_path = out_dir / f"{stem}.mid", out_dir / f"{stem}.notes.json"
-        if not force and up_to_date([mid_path, json_path], [stems[stem], song_dir / "analysis.json"]):
+        backend, command = drum_backend(drums_choice) if stem == "drums" else (None, None)
+        if not force and up_to_date([mid_path, json_path], [stems[stem], song_dir / "analysis.json"]) \
+                and (stem != "drums" or stored_backend(json_path) == backend):
             print(f"  {stem}: up to date (use --force to redo)")
             continue
         start = time.perf_counter()
@@ -380,20 +406,30 @@ def transcribe_song(song_dir, stems, wanted, force=False):
             for old in (mid_path, json_path):
                 old.unlink(missing_ok=True)
             continue
-        notes = drums.transcribe(y) if stem == "drums" else transcribe(y, stem)
+        if command:
+            try:
+                notes = drums.transcribe_adtof(stems[stem], y, command)
+            except (OSError, RuntimeError) as e:
+                print(f"  drums: the ADTOF-pytorch plugin failed, using the built-in model instead ({e})")
+                backend, command = "builtin", None
+        if stem == "drums" and not command:
+            notes = drums.transcribe(y)
+        elif stem != "drums":
+            notes = transcribe(y, stem)
         pitches = [n[2] for n in notes]
         pitch_range = [min(pitches), max(pitches)] if notes else []
         out = {"version": 1, "stem": stem, "notes": [list(n) for n in notes], "pitch_range": pitch_range,
-               "method": method_text(stem, tempo_note)}
+               "method": method_text(stem, tempo_note, backend)}
         if stem == "drums":
+            out["backend"] = backend
             out["kit"] = {str(drums.GM_NOTE[p]): drums.NAMES[p] for p in drums.PIECES}
         out_dir.mkdir(parents=True, exist_ok=True)
         json_path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
         write_midi(mid_path, notes, stem, knots, signatures, key)
         if stem == "drums":
-            count = {p: sum(n[2] == drums.GM_NOTE[p] for n in notes) for p in drums.PIECES}
-            span = ", ".join(f"{drums.NAMES[p].lower()} {n}" for p, n in count.items() if n) or "no hits"
-            print(f"  drums: {len(notes)} hits ({span}), {time.perf_counter() - start:.1f} s")
+            count = {name: sum(n[2] == int(note) for n in notes) for note, name in out["kit"].items()}
+            span = ", ".join(f"{name.lower()} {n}" for name, n in count.items() if n) or "no hits"
+            print(f"  drums ({backend}): {len(notes)} hits ({span}), {time.perf_counter() - start:.1f} s")
             continue
         span = "-".join(librosa.midi_to_note(p, unicode=False) for p in pitch_range) or "no notes"
         print(f"  {stem}: {len(notes)} notes, {span}, {time.perf_counter() - start:.1f} s")
@@ -405,6 +441,9 @@ def main():
     parser.add_argument("--song", help="only this song folder")
     parser.add_argument("--stems", default=",".join(STEM_NAMES), help="comma-separated, e.g. bass,guitar")
     parser.add_argument("--force", action="store_true", help="redo stems whose outputs are up to date")
+    parser.add_argument("--drums", choices=("auto", "builtin", "adtof"), default="auto",
+                        help="who finds the drum hits: the ADTOF-pytorch plugin if installed (auto), the built-in "
+                             "model, or the plugin")
     parser.add_argument("--onset", type=float, help="Basic Pitch onset threshold for these pitched stems (0-1; "
                                                     "implies --force); lower finds more notes")
     parser.add_argument("--frame", type=float, help="Basic Pitch note threshold for these pitched stems (0-1; "
@@ -431,7 +470,7 @@ def main():
         if not stems:
             continue
         print(f"{song_dir.name}: {tempo_map(read_analysis(song_dir))[2]}")
-        transcribe_song(song_dir, stems, wanted, args.force)
+        transcribe_song(song_dir, stems, wanted, args.force, args.drums)
         done += 1
     if not done:
         raise SystemExit(f"no song folder with stems matched under {args.stems_root}")

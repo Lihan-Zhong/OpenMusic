@@ -58,7 +58,8 @@ Once a song is split into stems, practise with it in a local web page:
 - **Drums**: the drum stem becomes a General MIDI drum track (kick, snare, closed and open hi-hat, three toms,
   crash, ride); choose "Drums" in the note view to see one row per kit piece. Kick and snare are the most
   accurate (F about 0.9 / 0.8 on real recordings split from the mix), hi-hat is a draft, toms and cymbals are
-  hints; how it works, the options we ruled out and the scores are in [docs/drums.en.md](docs/drums.en.md).
+  hints; with the optional ADTOF-pytorch plugin (see "Optional plugin" below) hi-hat and cymbals are much better.
+  How it works, the options we looked at and the scores are in [docs/drums.en.md](docs/drums.en.md).
 - **Shortcuts**: space play/pause, L loop on/off, `[` `]` speed, ← → one bar back/forward, M metronome.
 
 The workbench above is the easiest way. You can also run the steps one by one in a terminal (with RoFormer
@@ -186,7 +187,7 @@ docs/                 experiment notes: the separation comparison, drums to MIDI
 ```
 
 Not in the repo (see `.gitignore`): `.venv/`, `.cache/` (model weights), `data/` (dataset),
-`songs/` (your music), `outputs/` (separated stems).
+`songs/` (your music), `outputs/` (separated stems), `plugins/` (optional plugins you install yourself).
 
 ## Installation
 
@@ -226,6 +227,59 @@ Model weights download to `.cache/` on first use (Demucs about 80 MB, RoFormer-S
 - Stems in every format are sample-exact in length, so they stay in sync when played together.
 
 To reproduce the separation comparison (it needs the MUSDB18 test data), see [docs/experiments.en.md](docs/experiments.en.md).
+
+## Optional plugin: ADTOF-pytorch drum transcription
+
+OpenMusic's own drum model needs nothing extra (see [docs/drums.en.md](docs/drums.en.md)). For more accurate
+drum parts you can install a plugin yourself: [ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch), Xavier
+Riley's PyTorch port of the ADTOF drum transcription model by Zehren et al. Once it is installed, `transcribe.py`
+and the workbench use it to find the drum hits, and OpenMusic's own model refines them (which tom, open or closed
+hi-hat, crash or ride) and estimates the velocities. The result goes into the same `drums.mid`, and
+`drums.notes.json` says `"backend": "adtof-pytorch"`.
+
+**It is more accurate**: on real recordings (MDB Drums test half, drums split from the mix by Demucs), F-measure:
+
+| | Kick | Snare | Hi-hat | Toms | Cymbals | Ride |
+|---|---|---|---|---|---|---|
+| Built-in model | 0.90 | 0.82 | 0.64 | 0.16 | 0.49 | 0.43 |
+| ADTOF-pytorch plugin | 0.94 | 0.83 | 0.79 | 0.30 | 0.83 | 0.74 |
+
+On e-drum recordings (E-GMD) the built-in model is better, and on synthetic drums the two are about even; see
+[docs/drums.en.md](docs/drums.en.md).
+
+**Licence, please read first**: ADTOF-pytorch is not part of OpenMusic, is not distributed with it and is not in
+the repository (`plugins/` is in `.gitignore`). OpenMusic only runs its command line in a separate process and
+reads the MIDI file it writes; it does not import its code. Its repository has no LICENSE file yet; in
+[issue #3](https://github.com/xavriley/ADTOF-pytorch/issues/3) the author says the code will be MIT and the
+model weights, derived from the original ADTOF, remain [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/),
+that is, **non-commercial use only**. Whether and how you use it is your decision, and complying with its licence
+is your responsibility; this is not legal advice.
+
+**Install** (run in the OpenMusic folder; about 1 GB to download, mostly PyTorch):
+
+macOS / Linux:
+```bash
+git clone https://github.com/xavriley/ADTOF-pytorch plugins/ADTOF-pytorch
+python3 -m venv plugins/ADTOF-pytorch/.venv
+plugins/ADTOF-pytorch/.venv/bin/pip install -e plugins/ADTOF-pytorch
+```
+
+Windows:
+```bash
+git clone https://github.com/xavriley/ADTOF-pytorch plugins\ADTOF-pytorch
+python -m venv plugins\ADTOF-pytorch\.venv
+plugins\ADTOF-pytorch\.venv\Scripts\python -m pip install -e plugins\ADTOF-pytorch
+```
+With an NVIDIA GPU you can first install a CUDA build of torch into this venv (see
+https://pytorch.org/get-started/locally/); it is not needed, on the CPU a song takes a few seconds.
+
+- Installed somewhere else: set the environment variable `OPENMUSIC_ADTOF` to the full path of its `adtof`
+  command (on Windows `...\Scripts\adtof.exe`).
+- Then transcribe the drums again: `.venv/bin/python experiments/transcribe.py outputs/mp3 --stems drums` (songs
+  done with the other backend are redone), or "Redo" in the workbench's MIDI column.
+- Not this time: add `--drums builtin`; the plugin or an error: `--drums adtof`. Uninstall: delete the
+  `plugins/ADTOF-pytorch` folder.
+- If the plugin fails, transcribe.py says so and uses the built-in model instead.
 
 ## Licences and caveats
 
@@ -283,6 +337,11 @@ This project builds on many open-source projects and research results. Thank you
 - E-GMD: L. Callender, C. Hawthorne & J. Engel, “Improving Perceptual Quality of Drum Transcription with the
   Expanded Groove MIDI Dataset”, 2020 ([link](https://magenta.tensorflow.org/datasets/e-gmd), CC BY 4.0): training
   data of the drum model `experiments/models/drums.npz`.
+- Optional plugin ADTOF-pytorch (not distributed with OpenMusic): [ADTOF](https://github.com/MZehren/ADTOF), M. Zehren,
+  M. Alunno & P. Bientinesi, “ADTOF: A Large Dataset of Non-Synthetic Music for Automatic Drum Transcription”,
+  ISMIR 2021; “High-Quality and Reproducible Automatic Drum Transcription from Crowdsourced Data”, Signals 4(4),
+  2023 ([doi:10.3390/signals4040042](https://doi.org/10.3390/signals4040042)); PyTorch port by Xavier Riley,
+  [xavriley/ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch) (weights CC BY-NC-SA 4.0).
 - MDB Drums: C. Southall, C. Wu, A. Lerch & J. Hockman, “MDB Drums: An Annotated Subset of MedleyDB for Automatic
   Drum Transcription”, ISMIR 2017 ([repository](https://github.com/CarlSouthall/MDBDrums), CC BY-NC-SA 4.0): only
   to score the drum transcription; its audio comes from MedleyDB (R. Bittner et al., ISMIR 2014).

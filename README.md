@@ -41,7 +41,7 @@
 - **变速不变调**：50%–150%，可以在波形上拖出一段单独设速度，比如难的段落放慢到 70%；也能变调（± 半音和音分）。
 - **练习工具**：A-B 循环、速度练习（每循环一遍自动加快一点）、预备拍、跟着歌曲拍子响的节拍器。
 - **扒谱**：每轨自动转成 MIDI，网页里有钢琴卷帘，显示音名和"正在响"的音。MIDI 带歌曲的速度变化，每一拍、每条小节线都和播放器里的一样，导入 Guitar Pro / MuseScore 时小节能对上。贝斯最准，吉他、钢琴是比较密的参考草稿。卷帘下面还能下载整首歌的 Guitar Pro 谱。
-- **鼓谱**：鼓轨转成 General MIDI 鼓轨（底鼓、军鼓、踩镲和开镲、三个嗵鼓、强音镲、叮叮镲），网页里选「鼓」显示鼓谱视图，每种鼓件一行。底鼓、军鼓最准（真实录音分轨后 F 值约 0.9 / 0.8），踩镲是草稿，嗵鼓、镲片只作提示；做法、选型和评测见 [docs/drums.md](docs/drums.md)。
+- **鼓谱**：鼓轨转成 General MIDI 鼓轨（底鼓、军鼓、踩镲和开镲、三个嗵鼓、强音镲、叮叮镲），网页里选「鼓」显示鼓谱视图，每种鼓件一行。底鼓、军鼓最准（真实录音分轨后 F 值约 0.9 / 0.8），踩镲是草稿，嗵鼓、镲片只作提示；装了可选外挂 ADTOF-pytorch（见下面「可选外挂」）后踩镲、镲片明显更准。做法、选型和评测见 [docs/drums.md](docs/drums.md)。
 - **快捷键**：空格 播放/暂停，L 循环开关，`[` `]` 调速，← → 前后一小节，M 节拍器。
 
 最方便的是用上面的工作台。也可以在终端里一条条跑（以 RoFormer 分轨为例，`songs/` 里的每首歌都会处理）：
@@ -139,7 +139,7 @@ results/              每个方法的分数（JSON）和实验说明 method_info
 docs/                 实验记录：分轨方法对比、鼓转 MIDI，和复现步骤
 ```
 
-不进仓库的（见 `.gitignore`）：`.venv/`、`.cache/`（模型权重）、`data/`（数据集）、`songs/`（你的歌）、`outputs/`（分好的音轨）。
+不进仓库的（见 `.gitignore`）：`.venv/`、`.cache/`（模型权重）、`data/`（数据集）、`songs/`（你的歌）、`outputs/`（分好的音轨）、`plugins/`（自己装的可选外挂）。
 
 ## 安装
 
@@ -176,6 +176,43 @@ python -m venv .venv
 - 所有格式的分轨长度都精确到采样点，几轨一起播放时保持同步。
 
 分轨方法的对比实验（要下载 MUSDB18 测试数据）怎么复现，见 [docs/experiments.md](docs/experiments.md)。
+
+## 可选外挂：ADTOF-pytorch 扒鼓
+
+OpenMusic 自带的鼓谱模型不用另外安装（见 [docs/drums.md](docs/drums.md)）。如果想让鼓谱更准，可以自己装一个外挂：[ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch)，它是 Xavier Riley 把 Zehren 等人的 ADTOF 鼓谱模型移植到 PyTorch 的版本。装好以后，`transcribe.py` 和工作台会自动改用它来找鼓的每一下，再由 OpenMusic 自己的模型细分（哪个嗵鼓、开镲还是闭镲、强音镲还是叮叮镲）并估力度。结果写进同一个 `drums.mid`，`drums.notes.json` 里的 `"backend"` 会写成 `"adtof-pytorch"`。
+
+**它更准**：真实录音（MDB Drums 测试集，用 Demucs 从混音里分出的鼓轨），F 值对比如下：
+
+| | 底鼓 | 军鼓 | 踩镲 | 嗵鼓 | 镲片 | 叮叮镲 |
+|---|---|---|---|---|---|---|
+| 自带模型 | 0.90 | 0.82 | 0.64 | 0.16 | 0.49 | 0.43 |
+| 外挂 ADTOF-pytorch | 0.94 | 0.83 | 0.79 | 0.30 | 0.83 | 0.74 |
+
+在电子鼓录音（E-GMD）上反而是自带模型更好，合成鼓上两者差不多，详见 [docs/drums.md](docs/drums.md)。
+
+**协议，请先看**：ADTOF-pytorch 不是 OpenMusic 的一部分，不随 OpenMusic 发布，也不放进仓库（`plugins/` 在 `.gitignore` 里）。OpenMusic 只在另一个进程里运行它的命令行、读它写出的 MIDI 文件，不导入它的代码。它的仓库目前没有 LICENSE 文件；作者在 [issue #3](https://github.com/xavriley/ADTOF-pytorch/issues/3) 里说代码会用 MIT 协议，模型权重来自原版 ADTOF，仍然是 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)，也就是**只能非商业使用**。装不装、怎么用由你自己决定，并由你自己负责遵守它的协议；这里写的不是法律意见。
+
+**安装**（在 OpenMusic 文件夹里运行；要下载约 1 GB，主要是 PyTorch）：
+
+macOS / Linux：
+```bash
+git clone https://github.com/xavriley/ADTOF-pytorch plugins/ADTOF-pytorch
+python3 -m venv plugins/ADTOF-pytorch/.venv
+plugins/ADTOF-pytorch/.venv/bin/pip install -e plugins/ADTOF-pytorch
+```
+
+Windows：
+```bash
+git clone https://github.com/xavriley/ADTOF-pytorch plugins\ADTOF-pytorch
+python -m venv plugins\ADTOF-pytorch\.venv
+plugins\ADTOF-pytorch\.venv\Scripts\python -m pip install -e plugins\ADTOF-pytorch
+```
+有 NVIDIA 显卡的话，可以先按 https://pytorch.org/get-started/locally/ 把带 CUDA 的 torch 装进这个 venv；不装也行，它在 CPU 上一首歌只要几秒到十几秒。
+
+- 装在别的地方：把环境变量 `OPENMUSIC_ADTOF` 设成它的 `adtof` 命令的完整路径（Windows 上是 `...\Scripts\adtof.exe`）。
+- 装好后重新转鼓：`.venv/bin/python experiments/transcribe.py outputs/mp3 --stems drums`（换了外挂的歌会自动重做），或在工作台里点「扒谱」的「重做」。
+- 临时不用它：加 `--drums builtin`；一定要用它（没装就报错）：`--drums adtof`。卸载：删掉 `plugins/ADTOF-pytorch` 文件夹。
+- 外挂出错时会提示，并自动改用自带模型。
 
 ## 许可和注意事项
 
@@ -220,6 +257,7 @@ python -m venv .venv
 - 调式模板数据取自 [Essentia](https://github.com/MTG/essentia) 的 key.cpp（AGPL-3.0）；和弦识别的模板 + Viterbi 做法参照 librosa 文档里的示例。
 - [Basic Pitch](https://github.com/spotify/basic-pitch)（Spotify，ICASSP 2022，Apache-2.0）：转 MIDI，用 [ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT）运行；MIDI 读写用 [pretty_midi](https://github.com/craffel/pretty-midi)（MIT）和 [mido](https://github.com/mido/mido)（MIT），评测用 [mir_eval](https://github.com/mir-evaluation/mir_eval)（MIT），重采样用 [resampy](https://github.com/bmcfee/resampy)（ISC）。
 - E-GMD：L. Callender, C. Hawthorne & J. Engel, “Improving Perceptual Quality of Drum Transcription with the Expanded Groove MIDI Dataset”, 2020（[链接](https://magenta.tensorflow.org/datasets/e-gmd)，CC BY 4.0）：训练鼓谱模型 `experiments/models/drums.npz`。
+- 可选外挂 ADTOF-pytorch（不随 OpenMusic 发布）：[ADTOF](https://github.com/MZehren/ADTOF)，M. Zehren, M. Alunno & P. Bientinesi, “ADTOF: A Large Dataset of Non-Synthetic Music for Automatic Drum Transcription”, ISMIR 2021；“High-Quality and Reproducible Automatic Drum Transcription from Crowdsourced Data”, Signals 4(4), 2023（[doi:10.3390/signals4040042](https://doi.org/10.3390/signals4040042)）；PyTorch 移植：Xavier Riley，[xavriley/ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch)（权重 CC BY-NC-SA 4.0）。
 - MDB Drums：C. Southall, C. Wu, A. Lerch & J. Hockman, “MDB Drums: An Annotated Subset of MedleyDB for Automatic Drum Transcription”, ISMIR 2017（[仓库](https://github.com/CarlSouthall/MDBDrums)，CC BY-NC-SA 4.0）：只用来评测鼓谱；音频来自 MedleyDB（R. Bittner et al., ISMIR 2014）。
 - [PyGuitarPro](https://github.com/Perlence/PyGuitarPro)（Sviatoslav Abakumov，LGPL-3.0）：在内存里排好 Guitar Pro 谱；它依赖 [attrs](https://github.com/python-attrs/attrs)（MIT）。
 - [alphaTab](https://github.com/CoderLine/alphaTab)（Daniel Kuschny 等，MPL-2.0）：把排好的谱写成 Guitar Pro 7/8 的 .gp，并读回检查；收录的是 1.8.4 版，未修改，见 `experiments/vendor/alphatab/README.md`。它在 [mini-racer](https://github.com/bpcreech/PyMiniRacer)（ISC，内含 [V8](https://v8.dev)，BSD-3-Clause）里运行。

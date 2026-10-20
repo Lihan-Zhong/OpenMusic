@@ -15,6 +15,11 @@ cymbals = crash + ride), and the mean timing error. The MIDI checks read drums.m
 channel 10 and a General MIDI drum note, every analysis.json beat on its own MIDI beat and the downbeats on bar
 lines (test_transcribe.grid_problems).
 Exits with status 1 if a score falls below its floor in FLOORS or a MIDI check fails.
+
+    python experiments/tests/test_drums.py --adtof     # the same loops through the optional ADTOF-pytorch plugin
+
+--adtof scores the plugin (if installed) instead of the built-in model; FLOORS then only apply to kick, snare and
+hi-hat, 0.05 lower (the plugin's choice of tom and cymbal comes from the built-in model anyway).
 """
 import json
 import sys
@@ -84,7 +89,7 @@ def f_measure(ref, est):
     return 2 * hit / (len(ref) + len(est))
 
 
-def check_case(name, y, hits, analysis, silent):
+def check_case(name, y, hits, analysis, silent, backend="builtin"):
     folder = TEST_ROOT / name
     folder.mkdir(parents=True, exist_ok=True)
     save(folder / "drums.flac", np.stack([y, y]))
@@ -93,7 +98,7 @@ def check_case(name, y, hits, analysis, silent):
     else:
         (folder / "analysis.json").unlink(missing_ok=True)
     start = time.perf_counter()
-    transcribe.transcribe_song(folder, transcribe.find_stems(folder), ["drums"], force=True)
+    transcribe.transcribe_song(folder, transcribe.find_stems(folder), ["drums"], force=True, drums_choice=backend)
     took = time.perf_counter() - start
     out = folder / "transcription" / "drums.notes.json"
     failures = []
@@ -118,6 +123,9 @@ def check_case(name, y, hits, analysis, silent):
     print(f"  {name:22} {len(hits)} hits, {len(data['notes'])} found, timing {1000 * np.mean(errors):+.1f} "
           f"+- {1000 * np.std(errors):.1f} ms, {took:.1f} s\n  {'':22} {line}\n  {'':22} {groups}")
     for key, floor in FLOORS.get(name, {}).items():
+        if backend == "adtof" and key not in ("kick", "snare", "hi-hat"):
+            continue
+        floor -= 0.05 if backend == "adtof" else 0
         if scores[key] is None or scores[key] < floor:
             failures.append(f"{name} {key}")
     for a, b in silent:
@@ -147,10 +155,14 @@ def midi_problems(folder, analysis, data):
 
 
 def main():
-    print(f"Drum transcription (model {drums.MODEL.relative_to(drums.MODEL.parent.parent.parent)}):")
+    use_adtof = "--adtof" in sys.argv[1:]
+    if use_adtof and drums.adtof_command() is None:
+        sys.exit("the ADTOF-pytorch plugin is not installed (see the README)")
+    print(f"Drum transcription ({'the ADTOF-pytorch plugin, ' + str(drums.adtof_command()) if use_adtof else 'model '
+                                + str(drums.MODEL.relative_to(drums.MODEL.parent.parent.parent))}):")
     failures = []
     for name, case in make_cases().items():
-        failures += check_case(name, *case)
+        failures += check_case(name, *case, backend="adtof" if use_adtof else "builtin")
     print("\nall checks passed" if not failures else f"\nFAILED: {', '.join(failures)}")
     sys.exit(1 if failures else 0)
 

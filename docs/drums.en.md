@@ -10,6 +10,7 @@
 - **Hi-hat is a usable draft**: F ≈ 0.65–0.75. The main mistakes are mixing it up with the ride, and open with closed.
 - **Toms and cymbals are hints only**: toms are rare in real songs, and both misses and false hits are common (F 0.2–0.5). Crashes are roughly found; rides are often written as hi-hat.
 - Timing is tight: a few milliseconds off the reference on average, 6–8 ms standard deviation.
+- **For more accuracy, install the optional ADTOF-pytorch plugin yourself** (README, "Optional plugin"): on real recordings it reaches hi-hat F 0.79 and cymbals 0.83, much better than the built-in model. Its weights are under a non-commercial licence, so it is not distributed with OpenMusic. Scores below under "Optional plugin ADTOF-pytorch".
 
 ## How it works
 
@@ -29,8 +30,8 @@ We first surveyed open-source drum transcription. The conditions were code and w
 
 | Option | What we found | Verdict |
 |---|---|---|
-| ADTOF (Zehren et al.) | The repository is CC BY-NC-SA 4.0 (non-commercial) | cannot use |
-| ADTOF-pytorch | No licence; its weights are converted from ADTOF's non-commercial ones | cannot use |
+| ADTOF (Zehren et al.) | The whole repository (code and models) is CC BY-NC-SA 4.0 (non-commercial); needs TensorFlow and madmom, tested only on Python 3.10, no command line | not distributed with OpenMusic |
+| ADTOF-pytorch (port by Xavier Riley) | No LICENSE file yet; in issue #3 the author says the code will be MIT and the weights, derived from ADTOF, stay CC BY-NC-SA 4.0; needs only torch and librosa, has a command line | not distributed with OpenMusic, **can be installed as an optional plugin** (README, "Optional plugin") |
 | omnizart | Code MIT, no licence stated for the weights; needs TensorFlow and madmom (madmom's models are CC BY-NC-SA) | not used |
 | Magenta Onsets and Frames Drums (E-GMD) | Code Apache-2.0; magenta 2.1.4 pins TensorFlow 2.9.1 and numba 0.49.1, which do not install on Python 3.12 | not used |
 | MT3, YourMT3 | Large multi-instrument transcription models (JAX / large PyTorch); we only need drums | too heavy |
@@ -40,7 +41,7 @@ We first surveyed open-source drum transcription. The conditions were code and w
 | inagoy/drumsep (Demucs kit separation) | Repository MIT; weights on Google Drive, training data unknown; only 4 classes (kick, snare, cymbals, toms) | not used |
 | LarsNet, madmom's drum models | Non-commercial (CC BY-NC) | cannot use |
 
-So we went with signal-processing onsets plus a small classifier we train ourselves. It needs no new dependencies (numpy, librosa and scikit-learn are already in use), the training data is CC BY 4.0, and one command reproduces the training.
+So OpenMusic's own method is signal-processing onsets plus a small classifier we train ourselves. It needs no new dependencies (numpy, librosa and scikit-learn are already in use), the training data is CC BY 4.0, and one command reproduces the training.
 
 ## Results
 
@@ -73,6 +74,27 @@ F-measure: a hit counts as found within 50 ms (mir_eval's onset matching), summe
 | With 150 synthetic loops (the current model) | 0.83 | 0.68 | 0.75 | 0.33 | 0.36 | 0.93–0.97 |
 
 **Synthetic test** (`experiments/tests/test_drums.py`, a few seconds): two fixed synthetic kits (training used other, random ones) play rock, funk 16ths, a tom fill, ride and open hi-hats, one with reverb and bleed, plus a 160 BPM punk beat, a 20 s break, and a near-silent drum stem. Kick and snare 0.99–1.00, hi-hat 0.93–0.97, toms 0.91–0.98, cymbals 0.53–0.83 (the synthetic ride is not convincing), no false hits in the 17 s gap, timing ±6–8 ms. This shows the whole chain works (onsets, classification, MIDI, tempo map). The scores are optimistic and say little about real songs.
+
+## Optional plugin ADTOF-pytorch
+
+With the plugin installed (README, "Optional plugin"), `transcribe.py` runs its `adtof` command in a separate process and reads the MIDI file it writes: the plugin decides where the hits are and which of its 5 classes they belong to (kick, snare, toms, hi-hat, cymbals); the built-in model's probabilities at the same moment pick the piece within the class (which tom, open or closed hi-hat, crash or ride), and the velocities are estimated as for the built-in model. The same evaluation (`train_drums.py --eval --adtof`, `test_drums.py --adtof`):
+
+| F-measure | Kick | Snare | Hi-hat | Toms | Cymbals | Closed hi-hat | Open hi-hat | Crash | Ride |
+|---|---|---|---|---|---|---|---|---|---|
+| MDB test, drums split by Demucs: built-in | 0.90 | 0.82 | 0.64 | 0.16 | 0.49 | 0.61 | 0.33 | 0.29 | 0.43 |
+| MDB test, drums split by Demucs: plugin | **0.94** | **0.83** | **0.79** | **0.30** | **0.83** | 0.70 | 0.46 | 0.28 | 0.74 |
+| MDB test, original drum stem: built-in | 0.95 | 0.85 | 0.63 | 0.37 | 0.62 | 0.55 | 0.45 | 0.35 | 0.62 |
+| MDB test, original drum stem: plugin | 0.97 | 0.86 | 0.79 | 0.53 | 0.86 | 0.72 | 0.52 | 0.46 | 0.80 |
+| MDB dev, drums split by Demucs: built-in | 0.83 | 0.68 | 0.75 | 0.33 | 0.36 | 0.74 | 0.40 | 0.50 | 0.24 |
+| MDB dev, drums split by Demucs: plugin | 0.90 | 0.70 | 0.90 | 0.78 | 0.87 | 0.87 | 0.48 | 0.37 | 0.50 |
+| E-GMD test: built-in | 0.92 | 0.81 | 0.86 | 0.83 | 0.83 | 0.85 | 0.60 | 0.59 | 0.84 |
+| E-GMD test: plugin | 0.80 | 0.72 | 0.80 | 0.58 | 0.83 | 0.79 | 0.52 | 0.56 | 0.84 |
+
+- On real recordings the plugin is clearly better, above all for hi-hat and cymbals; on e-drum recordings (E-GMD, which the built-in model was trained on) the built-in model is better.
+- Caveat: ADTOF's papers use MDB Drums as a test set, but we could not check whether the released weights saw it during training, so the plugin's MDB scores may be somewhat optimistic.
+- Synthetic test (`test_drums.py --adtof`): kick 1.00, snare 0.93–1.00, hi-hat 0.94–0.95, toms 0.96–1.00, cymbals 0.40–1.00, no false hits in the gap; timing 6 ms early on average.
+- On the user's 3 songs the plugin and the built-in model agree on kick and snare (0.90–1.00); they disagree on hi-hat vs cymbals: in "中南海" the built-in model writes 191 cymbal hits (mostly ride), the plugin calls most of them hi-hat (818 hi-hat, 41 cymbal hits). Going by the scores above, the plugin is the one to trust.
+- Speed: about 10 s for a 6-minute song on the Mac's CPU (the first start of PyTorch is slower).
 
 ## On the user's songs
 

@@ -20,7 +20,17 @@ The weights (experiments/models/drums.npz) were trained by experiments/train_dru
 performances on a Roland e-drum kit, each recorded through up to 43 of its kits, with augmentation (EQ,
 compression, room reverb, quiet pitched bleed, low-pass) so that it also works on drum stems separated from a
 mix. Scores on held-out E-GMD performances and on real recordings (MDB Drums) are in docs/drums.md.
+
+Optional plugin: ADTOF-pytorch (Xavier Riley's PyTorch port of ADTOF by Zehren, Alunno & Bientinesi,
+https://github.com/xavriley/ADTOF-pytorch). Its weights are CC BY-NC-SA 4.0 (non-commercial), so it is not part
+of OpenMusic: the user installs it in its own venv (README), and transcribe_adtof runs its `adtof` command as a
+separate process and reads the MIDI file it writes. It knows 5 classes (kick, snare, toms, hi-hat, cymbals); our
+classifier then picks the piece within the class at each of its hits (which tom, closed or open hi-hat, crash or
+ride), and velocities are measured as for our own hits.
 """
+import os
+import subprocess
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -42,6 +52,11 @@ OFFSET_S = 0.01                 # a hit's spectral rise peaks about 10 ms before
 GATE_DB = 40.0                  # candidates this far below the stem's loud frames are not hits
 
 MODEL = Path(__file__).resolve().parent / "models" / "drums.npz"
+ADTOF_ENV = "OPENMUSIC_ADTOF"   # path of the plugin's `adtof` command, if not in the default place below
+ADTOF_DEFAULT = Path(__file__).resolve().parent.parent / "plugins" / "ADTOF-pytorch" / ".venv" / \
+    ("Scripts/adtof.exe" if os.name == "nt" else "bin/adtof")
+ADTOF_CLASS = {35: ("kick",), 36: ("kick",), 38: ("snare",), 47: ("tom_hi", "tom_mid", "tom_lo"),
+               42: ("hihat", "hihat_open"), 49: ("crash", "ride")}   # its MIDI notes -> the pieces they cover
 
 # kit pieces in the classifier's output order, their General MIDI percussion notes and names
 PIECES = ("kick", "snare", "tom_hi", "tom_mid", "tom_lo", "hihat", "hihat_open", "crash", "ride")
@@ -157,6 +172,49 @@ def velocities(L, frames, hit):
         level = np.array([band[f:f + 3].max() for f in frames[rows]]) * 20
         vel[rows, k] = np.clip(np.round(120 + 3 * (level - level.max())), 20, 127)
     return vel
+
+
+def as_hits(L, times, pieces):
+    """[(start_s, end_s, GM note, velocity)] of hits at times (s) of pieces, velocity as in velocities()."""
+    if not len(times):
+        return []
+    frames = np.clip(np.round((np.asarray(times) - OFFSET_S) * FPS).astype(int), 0, L.shape[1] - 1)
+    hit = np.zeros((len(times), len(PIECES)), bool)
+    hit[np.arange(len(times)), [PIECES.index(p) for p in pieces]] = True
+    vel = velocities(L, frames, hit).max(axis=1)
+    return sorted((round(float(t), 3), round(float(t) + HIT_S, 3), GM_NOTE[p], int(v))
+                  for t, p, v in zip(times, pieces, vel))
+
+
+def adtof_command():
+    """The ADTOF-pytorch plugin's `adtof` command: $OPENMUSIC_ADTOF, else ADTOF_DEFAULT; None if neither exists."""
+    path = Path(os.environ[ADTOF_ENV]).expanduser() if os.environ.get(ADTOF_ENV) else ADTOF_DEFAULT
+    return path if path.is_file() else None
+
+
+def transcribe_adtof(path, y, command):
+    """Drum hits like transcribe(), from the ADTOF-pytorch plugin run on the stem file `path` (its own process,
+    its own venv); y is the same stem, mono 44.1 kHz, for the velocities. Raises RuntimeError if it fails."""
+    import mido
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "adtof.mid"
+        run = subprocess.run([str(command), "--audio", str(path), "--out", str(out), "--device", "cuda"],
+                             capture_output=True, text=True)
+        if run.returncode or not out.is_file():
+            raise RuntimeError(f"{command} failed: {(run.stderr or run.stdout).strip()[-500:]}")
+        times, classes, t = [], [], 0.0
+        for msg in mido.MidiFile(str(out)):
+            t += msg.time
+            if msg.type == "note_on" and msg.velocity > 0 and msg.note in ADTOF_CLASS:
+                times.append(t)
+                classes.append(ADTOF_CLASS[msg.note])
+    L = log_spectrogram(y)
+    if not times:
+        return []
+    frames = np.clip(np.round((np.asarray(times) - OFFSET_S) * FPS).astype(int), 0, L.shape[1] - 1)
+    P = probabilities(features(L, frames))
+    pieces = [max(group, key=lambda p: P[i, PIECES.index(p)]) for i, group in enumerate(classes)]
+    return as_hits(L, times, pieces)
 
 
 def transcribe(y):

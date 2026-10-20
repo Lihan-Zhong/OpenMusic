@@ -3,6 +3,7 @@
     python experiments/train_drums.py                     # download the E-GMD subset, train, write the model
     python experiments/train_drums.py --eval              # score the model: E-GMD test, MDB Drums if present
     python experiments/train_drums.py --separate demucs6  # split the MDB Drums mixes, to score on separated drums
+    python experiments/train_drums.py --eval --adtof      # the same scores for the optional ADTOF-pytorch plugin
 
 Training data: part of E-GMD v1.0.0 (Callender, Hawthorne & Engel, "Improving Perceptual Quality of Drum
 Transcription with the Expanded Groove MIDI Dataset", 2020; CC BY 4.0): human performances on a Roland TD-17
@@ -302,11 +303,20 @@ def train():
 
 # ---------- scoring ----------
 
-def score(recordings, title):
-    """recordings: [(audio path, [(time_s, piece)])]. Prints and returns {piece or group: F}."""
+def builtin(path):
+    return drums.transcribe(mono(path))
+
+
+def adtof(path):
+    return drums.transcribe_adtof(path, mono(path), drums.adtof_command())
+
+
+def score(recordings, title, transcribe=builtin):
+    """recordings: [(audio path, [(time_s, piece)])]; transcribe(path) -> hits. Prints and returns {piece or
+    group: F}."""
     found = Counter()
     for path, hits in recordings:
-        est = drums.transcribe(mono(path))
+        est = transcribe(path)
         by_note = {n: p for p, n in drums.GM_NOTE.items()}
         est_t = {p: np.array([h[0] for h in est if by_note[h[2]] == p]) for p in drums.PIECES}
         ref_t = {p: np.array(sorted(t for t, q in hits if q == p)) for p in drums.PIECES}
@@ -326,9 +336,12 @@ def score(recordings, title):
     return out
 
 
-def evaluate():
-    score([(w, egmd_hits(m)) for w, m in egmd_files("validation")], "E-GMD validation (other performances)")
-    score([(w, egmd_hits(m)) for w, m in egmd_files("test")], "E-GMD test (other performances)")
+def evaluate(transcribe=builtin):
+    if transcribe is adtof and drums.adtof_command() is None:
+        raise SystemExit("the ADTOF-pytorch plugin is not installed (see the README)")
+    score([(w, egmd_hits(m)) for w, m in egmd_files("validation")], "E-GMD validation (other performances)",
+          transcribe)
+    score([(w, egmd_hits(m)) for w, m in egmd_files("test")], "E-GMD test (other performances)", transcribe)
     if not MDB.is_dir():
         print(f"\nno MDB Drums in {MDB} (git clone https://github.com/CarlSouthall/MDBDrums data/MDBDrums)")
         return
@@ -337,18 +350,20 @@ def evaluate():
     for half in ("dev", "test"):
         for version in versions:
             tracks = [t for t in mdb_tracks(half) if mdb_audio(t, version).is_file()]
-            score([(mdb_audio(t, version), mdb_hits(t)) for t in tracks], f"MDB Drums {half}, {version}")
+            score([(mdb_audio(t, version), mdb_hits(t)) for t in tracks], f"MDB Drums {half}, {version}",
+                  transcribe)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--eval", action="store_true", help="score the model instead of training it")
     parser.add_argument("--separate", metavar="MODEL", help="split the MDB Drums mixes with methods_multi/MODEL.py")
+    parser.add_argument("--adtof", action="store_true", help="with --eval: score the optional ADTOF-pytorch plugin")
     args = parser.parse_args()
     if args.separate:
         separate_mdb(args.separate)
     elif args.eval:
-        evaluate()
+        evaluate(adtof if args.adtof else builtin)
     else:
         train()
         score([(w, egmd_hits(m)) for w, m in egmd_files("validation")], "E-GMD validation (other performances)")
