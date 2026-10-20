@@ -4,15 +4,21 @@ Guitar Pro / MuseScore / a DAW, and a notes.json for the practice player's piano
     python experiments/transcribe.py outputs/mp3
     python experiments/transcribe.py outputs/mp3 --song "Carsick Cars - 中南海" --stems bass,guitar --force
     python experiments/transcribe.py outputs/mp3 --stems guitar --frame 0.5     # fewer, surer guitar notes
+    python experiments/transcribe.py outputs/mp3 --stems drums                  # only the drum hits
 
-For each <stems_root>/<song>/ folder, every non-drum stem with audible content gets
+For each <stems_root>/<song>/ folder, every stem with audible content gets
   <song>/transcription/<stem>.mid          one note track, tempo map from <song>/analysis.json if present
   <song>/transcription/<stem>.notes.json   {"version": 1, "stem", "notes": [[start_s, end_s, pitch, velocity]],
                                             "pitch_range": [lo, hi], "method"}
 Near-silent stems (e.g. an empty piano stem) are skipped, and old outputs of them removed. Outputs newer than
 both the stem and analysis.json are kept unless --force.
 
-Notes come from Spotify's Basic Pitch (basic-pitch 0.4.0, code and model Apache-2.0,
+Drums: drums.py finds the hits of the drum stem (kick, snare, three toms, closed and open hi-hat, crash, ride)
+and drums.mid is a General MIDI drum track on channel 10 (kick 36, snare 38, toms 50 / 47 / 43, hi-hat 42 / 46,
+crash 49, ride 51), so Guitar Pro / MuseScore open it as a drum kit; each hit is 0.1 s long. Its notes.json has
+the GM note as "pitch" and also "kit": {GM note: name}.
+
+Pitched notes come from Spotify's Basic Pitch (basic-pitch 0.4.0, code and model Apache-2.0,
 https://github.com/spotify/basic-pitch): its ONNX model on onnxruntime and its own note decoding
 (note_creation.model_output_to_notes). Per stem we only set Basic Pitch's own knobs (onset/frame thresholds,
 shortest note, pitch range). On top of that, notes are dropped where the stem is near silent (Basic Pitch
@@ -43,11 +49,14 @@ import librosa
 import mido
 import numpy as np
 
+import drums
 from common import load
 
 SR = 22050                      # Basic Pitch's sample rate
-STEM_NAMES = ("vocals", "bass", "guitar", "piano", "other")   # drums have no pitches to write down
+PITCHED = ("vocals", "bass", "guitar", "piano", "other")      # through Basic Pitch
+STEM_NAMES = ("vocals", "drums", "bass", "guitar", "piano", "other")
 EXT_PREFERENCE = (".flac", ".wav", ".mp3")
+DRUM_CHANNEL = 9                # MIDI channel 10, General MIDI percussion
 
 # Basic Pitch settings per stem: onset / frame = its onset and note thresholds (its defaults are 0.5 / 0.3;
 # higher = fewer, surer notes); min_ms = shortest note in Basic Pitch's terms (its default 127.7 ms would drop
@@ -63,7 +72,7 @@ SETTINGS = {
     "piano": dict(onset=0.5, frame=0.4, min_ms=70, lo=21, hi=108, one_voice=False, program=0),    # A0-C8
     "other": dict(onset=0.5, frame=0.4, min_ms=70, lo=21, hi=108, one_voice=False, program=4),
 }
-TRACK_NAMES = {"vocals": "Vocals (melody)", "bass": "Bass", "guitar": "Guitar", "piano": "Piano",
+TRACK_NAMES = {"vocals": "Vocals (melody)", "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano",
                "other": "Other"}
 
 HOP = 256                       # Basic Pitch's frame hop (11.6 ms); the loudness envelope uses it too
@@ -289,16 +298,17 @@ def write_midi(path, notes, stem, knots, signatures, key=None):
     if key:
         conductor.append((0, 3, mido.MetaMessage("key_signature", key=key)))
 
-    s = SETTINGS[stem]
+    channel = DRUM_CHANNEL if stem == "drums" else 0
+    program = 0 if stem == "drums" else SETTINGS[stem]["program"]  # drums: the standard kit
     part = [(0, 0, mido.MetaMessage("track_name", name=TRACK_NAMES[stem])),
-            (0, 1, mido.Message("program_change", program=s["program"], channel=0))]
+            (0, 1, mido.Message("program_change", program=program, channel=channel))]
     if notes:
         starts, ends, pitches, velocities = zip(*notes)
         on = np.round(seconds_to_beats(starts, knots) * PPQ).astype(int)
         off = np.maximum(np.round(seconds_to_beats(ends, knots) * PPQ).astype(int), on + 1)
         for a, b, p, v in zip(on, off, pitches, velocities):
-            part.append((int(a), 3, mido.Message("note_on", note=p, velocity=v, channel=0)))
-            part.append((int(b), 2, mido.Message("note_off", note=p, velocity=0, channel=0)))
+            part.append((int(a), 3, mido.Message("note_on", note=p, velocity=v, channel=channel)))
+            part.append((int(b), 2, mido.Message("note_off", note=p, velocity=0, channel=channel)))
 
     mid = mido.MidiFile(type=1, ticks_per_beat=PPQ)
     for events in (conductor, part):
@@ -314,7 +324,7 @@ def write_midi(path, notes, stem, knots, signatures, key=None):
 # ---------- songs ----------
 
 def find_stems(song_dir):
-    """{stem name: path} for the non-drum stems, taking .flac over .wav over .mp3."""
+    """{stem name: path} for the stems, taking .flac over .wav over .mp3."""
     found = {}
     for ext in reversed(EXT_PREFERENCE):
         for name in STEM_NAMES:
@@ -334,6 +344,9 @@ def read_analysis(song_dir):
 
 
 def method_text(stem, tempo_note):
+    if stem == "drums":
+        return (f"drums.py: onset candidates + a small neural network trained on E-GMD (CC BY 4.0), "
+                f"{len(drums.PIECES)} kit pieces as General MIDI drums on channel 10; MIDI: {tempo_note}")
     s = SETTINGS[stem]
     lo, hi = librosa.midi_to_note(s["lo"], unicode=False), librosa.midi_to_note(s["hi"], unicode=False)
     return (f"basic-pitch {version('basic-pitch')} (ONNX, onnxruntime {version('onnxruntime')}), "
@@ -359,21 +372,29 @@ def transcribe_song(song_dir, stems, wanted, force=False):
             print(f"  {stem}: up to date (use --force to redo)")
             continue
         start = time.perf_counter()
-        y = load(stems[stem], sr=SR).mean(axis=0)
-        audible_s = float(np.sum(loudness_db(y) > SILENT_DB)) * HOP / SR
+        sr = drums.SR if stem == "drums" else SR
+        y = load(stems[stem], sr=sr).mean(axis=0)
+        audible_s = float(np.sum(loudness_db(y) > SILENT_DB)) * HOP / sr
         if audible_s < MIN_AUDIBLE_S:
             print(f"  {stem}: skipped, near silent (only {audible_s:.1f} s above {SILENT_DB:g} dBFS)")
             for old in (mid_path, json_path):
                 old.unlink(missing_ok=True)
             continue
-        notes = transcribe(y, stem)
+        notes = drums.transcribe(y) if stem == "drums" else transcribe(y, stem)
         pitches = [n[2] for n in notes]
         pitch_range = [min(pitches), max(pitches)] if notes else []
+        out = {"version": 1, "stem": stem, "notes": [list(n) for n in notes], "pitch_range": pitch_range,
+               "method": method_text(stem, tempo_note)}
+        if stem == "drums":
+            out["kit"] = {str(drums.GM_NOTE[p]): drums.NAMES[p] for p in drums.PIECES}
         out_dir.mkdir(parents=True, exist_ok=True)
-        json_path.write_text(json.dumps({"version": 1, "stem": stem, "notes": [list(n) for n in notes],
-                                         "pitch_range": pitch_range, "method": method_text(stem, tempo_note)},
-                                        ensure_ascii=False), encoding="utf-8")
+        json_path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
         write_midi(mid_path, notes, stem, knots, signatures, key)
+        if stem == "drums":
+            count = {p: sum(n[2] == drums.GM_NOTE[p] for n in notes) for p in drums.PIECES}
+            span = ", ".join(f"{drums.NAMES[p].lower()} {n}" for p, n in count.items() if n) or "no hits"
+            print(f"  drums: {len(notes)} hits ({span}), {time.perf_counter() - start:.1f} s")
+            continue
         span = "-".join(librosa.midi_to_note(p, unicode=False) for p in pitch_range) or "no notes"
         print(f"  {stem}: {len(notes)} notes, {span}, {time.perf_counter() - start:.1f} s")
 
@@ -384,16 +405,16 @@ def main():
     parser.add_argument("--song", help="only this song folder")
     parser.add_argument("--stems", default=",".join(STEM_NAMES), help="comma-separated, e.g. bass,guitar")
     parser.add_argument("--force", action="store_true", help="redo stems whose outputs are up to date")
-    parser.add_argument("--onset", type=float, help="Basic Pitch onset threshold for these stems (0-1; implies "
-                                                    "--force); lower finds more notes")
-    parser.add_argument("--frame", type=float, help="Basic Pitch note threshold for these stems (0-1; implies "
-                                                    "--force); lower finds more and longer notes")
+    parser.add_argument("--onset", type=float, help="Basic Pitch onset threshold for these pitched stems (0-1; "
+                                                    "implies --force); lower finds more notes")
+    parser.add_argument("--frame", type=float, help="Basic Pitch note threshold for these pitched stems (0-1; "
+                                                    "implies --force); lower finds more and longer notes")
     args = parser.parse_args()
     wanted = [s.strip() for s in args.stems.split(",") if s.strip()]
     unknown = [s for s in wanted if s not in STEM_NAMES]
     if unknown:
-        raise SystemExit(f"unknown stem(s) {unknown}; choose from {', '.join(STEM_NAMES)} (drums have no notes)")
-    for name in wanted:
+        raise SystemExit(f"unknown stem(s) {unknown}; choose from {', '.join(STEM_NAMES)}")
+    for name in [s for s in wanted if s in PITCHED]:  # Basic Pitch's knobs; drums have none
         for knob in ("onset", "frame"):
             if getattr(args, knob) is not None:
                 SETTINGS[name][knob] = getattr(args, knob)

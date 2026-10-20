@@ -122,6 +122,11 @@ def make_songs():
     (sync / "transcription" / "guitar.notes.json").write_text(json.dumps(
         {"version": 1, "stem": "guitar", "notes": notes, "pitch_range": [40, 76], "method": "synthetic"}), encoding="utf-8")
     (sync / "transcription" / "guitar.mid").write_bytes(midi_file(notes))
+    hits = [[float(t), float(t + 0.1), 42, 80] for t in np.arange(0.5, SYNC_SECONDS - 0.5, BEAT / 2)]
+    hits += [[float(t), float(t + 0.1), 36 if i % 2 == 0 else 38, 110] for i, t in enumerate(CLICKS)]
+    (sync / "transcription" / "drums.notes.json").write_text(json.dumps(
+        {"version": 1, "stem": "drums", "notes": sorted(hits), "pitch_range": [36, 42], "method": "synthetic",
+         "kit": {"36": "Kick", "38": "Snare", "42": "Hi-hat"}}), encoding="utf-8")
 
     loud = SONGS / "loud"
     t = np.arange(int(12 * SR)) / SR
@@ -456,6 +461,9 @@ def run_ui(browser, base, problems):
     res["paused_output_peak"] = page.evaluate("""async () => { window.rec.start(); await new Promise(r => setTimeout(r, 1000));
         await window.rec.stop(); window.rec.join(); return window.rec.ch[0].reduce((m, x) => Math.max(m, Math.abs(x)), 0); }""")
     res["limiter_badge_when_paused"] = page.evaluate("() => document.getElementById('limiter').classList.contains('active')")
+    page.evaluate("() => { const r = document.getElementById('roll'); r.value = 'drums'; r.onchange(); }")
+    page.wait_for_timeout(300)
+    res["drum_lane_rows"] = page.evaluate("() => document.getElementById('detail').dataset.lane")
     page.evaluate("""() => { const z = document.getElementById('zoom'); z.value = 8; z.oninput();
         const r = document.getElementById('roll'); r.value = ''; r.onchange(); r.value = 'guitar'; r.onchange(); }""")
     page.wait_for_timeout(700)                          # settings are saved 300 ms after a change
@@ -482,6 +490,7 @@ def run_ui(browser, base, problems):
         "keys: ] speed, L loop, space play/pause": res["speed_after_bracket"] == 1.05 and res["loop_on_after_l"] is False
         and res["playing_after_space"] and not res["playing_after_second_space"],
         "solo silences the other 5 rows": res["silent_rows_with_solo"] == 5,
+        "drum lane: hi-hat, snare, kick rows, top to bottom": res["drum_lane_rows"] == "42 38 36",
         "silent while paused": res["paused_output_peak"] < 1e-4,
         "loop and speed regions come back after a reload": res["after_reload"]["loop"]["a"] == 4.5
         and res["after_reload"]["regions"] == [{"start": 12.5, "end": 16.5, "speed": 0.6}],

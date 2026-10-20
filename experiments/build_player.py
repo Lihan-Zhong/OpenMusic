@@ -73,6 +73,8 @@ TEXT = {
         "drag": "在波形上拖动：", "drag_loop": "设 A-B 循环", "drag_speed": "新建变速段",
         "snap": "对齐到", "snap_bar": "小节", "snap_beat": "拍", "snap_off": "不对齐", "zoom": "放大",
         "notes_of": "音符：", "notes_none": "（无）", "span": "视野", "now_notes": "正在响：",
+        "kit": {"49": "强音镲", "51": "叮叮镲", "46": "开镲", "42": "踩镲", "50": "一嗵", "47": "二嗵",
+                "43": "落地嗵", "38": "军鼓", "36": "底鼓"},
         "mixer": "分轨音量", "master": "总音量", "reset": "全部复位", "mute": "静音", "solo": "独奏",
         "midi": "MIDI", "midi_title": "下载这一轨的扒谱 MIDI（可导入 Guitar Pro / MuseScore）",
         "gp": "Guitar Pro",
@@ -115,6 +117,8 @@ TEXT = {
         "drag": "Drag on the waveform to:", "drag_loop": "Set A-B loop", "drag_speed": "New speed region",
         "snap": "Snap to", "snap_bar": "bars", "snap_beat": "beats", "snap_off": "off", "zoom": "Zoom",
         "notes_of": "Notes:", "notes_none": "(none)", "span": "View", "now_notes": "Sounding: ",
+        "kit": {"49": "Crash", "51": "Ride", "46": "Open hi-hat", "42": "Hi-hat", "50": "High tom", "47": "Mid tom",
+                "43": "Floor tom", "38": "Snare", "36": "Kick"},
         "mixer": "Stem volumes", "master": "Master", "reset": "Reset all", "mute": "Mute", "solo": "Solo",
         "midi": "MIDI", "midi_title": "Download this stem's transcription as MIDI (opens in Guitar Pro / MuseScore)",
         "gp": "Guitar Pro",
@@ -429,6 +433,7 @@ const pct = r => Math.round(r * 100) + '%';
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const SHARP = {Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#', Bb: 'A#', Cb: 'B', Fb: 'E', 'E#': 'F', 'B#': 'C'};
 const noteName = p => NAMES[((p % 12) + 12) % 12] + (Math.floor(p / 12) - 1);
+const DRUM_ROWS = [49, 51, 46, 42, 50, 47, 43, 38, 36];   // GM drum notes, top to bottom of the drum lane
 const shiftName = (n, k) => NAMES[(NAMES.indexOf(SHARP[n] || n) + k % 12 + 12) % 12];
 const transposeChord = (label, k) => !k || !label || label === 'N' ? label
   : label.replace(/(^|\/)([A-G][#b]?)/g, (_, pre, root) => pre + shiftName(root, k));
@@ -1113,6 +1118,7 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
   const cv = $('detail'), rollSel = $('roll');
   const noteCache = {};
   let notes = null;
+  const drumName = p => T.kit[p] || notes?.kit?.[p] || String(p);
   const rollStems = song.stems.filter(s => song.notes[s.name]);
   for (const s of rollStems) rollSel.add(new Option(T.stems[s.name] || s.name, s.name));
   rollSel.add(new Option(T.notes_none, ''));
@@ -1135,7 +1141,12 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
       notes.notes.sort((p, q) => p[0] - q[0]);
       notes.starts = notes.notes.map(n => n[0]);
       notes.maxLen = notes.notes.reduce((m, n) => Math.max(m, n[1] - n[0]), 0);
+      if (notes.kit) {
+        const played = new Set(notes.notes.map(n => n[2]));
+        notes.rows = [...DRUM_ROWS.filter(p => played.has(p)), ...[...played].filter(p => !DRUM_ROWS.includes(p)).sort((p, q) => q - p)];
+      }
     }
+    cv.dataset.lane = notes?.kit ? notes.rows.join(' ') : notes ? 'pitch' : '';   // which view is drawn (for tests)
     if (song.midi[rollStem]) {
       const a = document.createElement('a'); a.href = song.base + song.midi[rollStem]; a.download = song.name + ' - ' + rollStem + '.mid';
       a.textContent = '⬇ ' + T.midi; a.title = T.midi_title; $('roll-midi').append(a);
@@ -1181,7 +1192,28 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
       g.fillStyle = cur ? '#fff' : colors.text; g.save(); g.beginPath(); g.rect(a + 1, RULER, Math.max(0, b - a - 2), CH); g.clip();
       g.font = '600 13px system-ui, sans-serif'; g.fillText(transposeChord(c.label, k), Math.max(a, 0) + 5, RULER + CH / 2 - 1); g.restore();
     }
-    if (notes?.notes?.length) {
+    if (notes?.notes?.length && notes.kit) {
+      // drum lane: one row per kit piece that is played, cymbals on top and kick at the bottom as in drum
+      // notation; darker = louder
+      const rows = notes.rows, rowH = (H - top) / rows.length, KEYS = 64, Y = i => top + i * rowH;
+      rows.forEach((p, i) => { if (i % 2) { g.fillStyle = colors['accent-soft']; g.globalAlpha = 0.35; g.fillRect(KEYS, Y(i), W - KEYS, rowH); g.globalAlpha = 1; } });
+      const sounding = [];
+      for (let i = lowerBound(notes.starts, t0 - notes.maxLen); i < notes.notes.length && notes.notes[i][0] < t1; i++) {
+        const [s, e, p, v] = notes.notes[i], row = rows.indexOf(p); if (e < t0 || row < 0) continue;
+        const a = Math.max(KEYS, X(s)), on = s <= x && x < e;
+        if (on) sounding.push(p);
+        g.fillStyle = on ? colors.accent : STEM_COLORS.drums; g.globalAlpha = on ? 1 : 0.3 + 0.7 * v / 127;
+        g.fillRect(a, Y(row) + 1, Math.max(3, X(e) - a), Math.max(2, rowH - 2)); g.globalAlpha = 1;
+      }
+      g.fillStyle = colors.panel2; g.fillRect(0, top, KEYS, H - top);
+      g.fillStyle = colors.muted; g.font = `${clamp(rowH - 1, 8, 11)}px system-ui, sans-serif`;
+      rows.forEach((p, i) => g.fillText(drumName(p), 3, Y(i) + rowH / 2));
+      if (sounding.length) {
+        const txt = T.now_notes + rows.filter(p => sounding.includes(p)).map(drumName).join(' ');
+        g.font = '600 12px system-ui, sans-serif'; const w = g.measureText(txt).width;
+        g.fillStyle = colors.panel; g.fillRect(W - w - 14, top + 2, w + 10, 18); g.fillStyle = colors.text; g.fillText(txt, W - w - 9, top + 11);
+      }
+    } else if (notes?.notes?.length) {
       // fit the pitch axis to the notes in view (at least 15 semitones), so rows are tall enough to label;
       // grow at once, shrink only when much too wide, so the axis does not jump while playing
       let lo = 127, hi = 0;

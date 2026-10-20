@@ -568,7 +568,7 @@ pre{background:var(--chip);border-radius:8px;padding:10px;max-height:260px;overf
 const MODEL={zh:{demucs6:'Demucs 6 轨',demucs4:'Demucs 4 轨',demucs_ai:'Demucs 4 轨',roformer_sw:'BS-RoFormer-SW 6 轨'},en:{demucs6:'Demucs 6-stem',demucs4:'Demucs 4-stem',demucs_ai:'Demucs 4-stem',roformer_sw:'BS-RoFormer-SW 6-stem'}};
 const STEM={zh:{vocals:'人声',drums:'鼓',bass:'贝斯',guitar:'吉他',piano:'钢琴/键盘',other:'其他'},en:{vocals:'vocals',drums:'drums',bass:'bass',guitar:'guitar',piano:'piano/keys',other:'other'}};
 const T={zh:{title:'OpenMusic 工作台',intro:'把一首歌从音频文件一路处理到练习播放器。每一步都可以单独运行或重做；“一键处理”会按顺序跑完还没做的步骤。同一时间只跑一个任务，免得电脑卡。',
-s1:'添加歌曲',s1d:'拖一个 mp3 / wav / flac 进来，存到 songs/',s2:'分轨',s2d:'用 AI 拆成人声、鼓、贝斯、吉他、钢琴、其他',s3:'分析',s3d:'速度、拍号和小节线、调、和弦',s4:'扒谱（MIDI）',s4d:'把每轨的音符写成 MIDI，并合成一份带六线谱和和弦名的 Guitar Pro 谱（鼓没有音高，不转）',s5:'练习',s5d:'在练习播放器里调音量、变速、循环、扒谱',
+s1:'添加歌曲',s1d:'拖一个 mp3 / wav / flac 进来，存到 songs/',s2:'分轨',s2d:'用 AI 拆成人声、鼓、贝斯、吉他、钢琴、其他',s3:'分析',s3d:'速度、拍号和小节线、调、和弦',s4:'扒谱（MIDI）',s4d:'把每轨的音符写成 MIDI（鼓也转：底鼓、军鼓、踩镲、嗵鼓、镲片），并合成一份带六线谱和和弦名的 Guitar Pro 谱',s5:'练习',s5d:'在练习播放器里调音量、变速、循环、扒谱',
 add:'1. 添加歌曲',drop:'把音频文件拖到这里，或点这里选择文件',lib:'2–5. 处理歌曲',c_song:'歌曲',c_split:'分轨',c_an:'速度 / 调',c_midi:'MIDI',c_player:'练习播放器',jobs:'任务',
 L_demucs6:'Demucs 6 轨',L_demucs6s:'任何电脑都能跑，Mac 上一首约 1 分钟',L_roformer_sw:'RoFormer 6 轨',L_roformer_sws:'效果更好，需要 NVIDIA 显卡',L_mp3:'已整理的资料库',L_mp3s:'outputs/mp3，已经分好轨，每首注明了模型',
 note_split:'分轨结果在 {root}/。',note_nosplit:'这里的歌已经分好轨（{root}/），从第 3 步开始。',
@@ -584,7 +584,7 @@ up_big:'文件太大（上限 400 MB）：{n}',up_name:'文件名不能用：{n}
 hw:'这台电脑：{p}，{g}，内存 {r} GB',offline:'连不上工作台了：运行它的终端窗口可能已经关闭。重新运行 python experiments/app.py 后刷新本页。',
 foot:'工作台只在本机运行（127.0.0.1）。它调用的就是 README 里的那几条命令，也可以直接在终端里跑。'},
 en:{title:'OpenMusic workbench',intro:'Take a song from an audio file all the way to the practice player. Each step can be run or redone on its own; “Process all” runs the missing steps in order. One job runs at a time, so the computer stays responsive.',
-s1:'Add a song',s1d:'drop an mp3 / wav / flac here; it is saved to songs/',s2:'Split',s2d:'AI separates vocals, drums, bass, guitar, piano, other',s3:'Analyze',s3d:'tempo, time signature and bar lines, key, chords',s4:'Transcribe (MIDI)',s4d:'notes of each stem as MIDI, plus one Guitar Pro file with tab and chord names (not drums)',s5:'Practise',s5d:'volume, speed, loops and transcription in the player',
+s1:'Add a song',s1d:'drop an mp3 / wav / flac here; it is saved to songs/',s2:'Split',s2d:'AI separates vocals, drums, bass, guitar, piano, other',s3:'Analyze',s3d:'tempo, time signature and bar lines, key, chords',s4:'Transcribe (MIDI)',s4d:'notes of each stem as MIDI (drums too: kick, snare, hi-hat, toms, cymbals), plus one Guitar Pro file with tab and chord names',s5:'Practise',s5d:'volume, speed, loops and transcription in the player',
 add:'1. Add a song',drop:'Drop audio files here, or click to choose',lib:'2–5. Process songs',c_song:'Song',c_split:'Stems',c_an:'Tempo / key',c_midi:'MIDI',c_player:'Practice player',jobs:'Jobs',
 L_demucs6:'Demucs 6-stem',L_demucs6s:'runs on any computer, about 1 min per song on a Mac',L_roformer_sw:'RoFormer 6-stem',L_roformer_sws:'better quality, needs an NVIDIA GPU',L_mp3:'Collected library',L_mp3s:'outputs/mp3, already split; each song shows its model',
 note_split:'Stems go to {root}/.',note_nosplit:'Songs here are already split ({root}/); start at step 3.',
