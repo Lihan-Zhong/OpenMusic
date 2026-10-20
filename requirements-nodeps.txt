@@ -1,0 +1,5 @@
+# basic-pitch 0.4.0 pins TensorFlow versions that have no Python 3.12 wheels, but its ONNX path needs none of
+# them, so install it without dependencies AFTER requirements.txt:
+#   .venv/bin/pip install --no-deps -r requirements-nodeps.txt      (Windows: .venv\Scripts\python -m pip ...)
+# `pip check` will then list coremltools, tensorflow-macos and the resampy pin; that is expected.
+basic-pitch==0.4.0

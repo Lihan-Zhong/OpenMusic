@@ -9,6 +9,7 @@ so guitar + piano + other are summed into other4 for scoring. Guitar is judged b
     python experiments/evaluate_multi.py demucs6 --split test --song     # 50 test clips + 60 s excerpts
     python experiments/evaluate_multi.py demucs6 --full                  # also split every full song in songs/
     python experiments/evaluate_multi.py demucs6 --full --lossless       # full songs as FLAC instead of MP3
+    python experiments/evaluate_multi.py roformer_sw --full --no-score   # just split songs/ (no MUSDB18 needed)
 
 Excerpt stems (--song) are for comparing methods by ear, so they are always lossless FLAC.
 Full-song stems (--full) are the finished product: MP3 by default, FLAC with --lossless.
@@ -47,16 +48,7 @@ def to_scored(est):
     return {"vocals": est["vocals"], "drums": est["drums"], "bass": est["bass"], "other4": sum(rest)}
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("method")
-    parser.add_argument("--split", default="test", choices=["train", "test"])
-    parser.add_argument("--song", action="store_true", help="render the 60 s song excerpts")
-    parser.add_argument("--full", action="store_true", help="render every full song in songs/")
-    parser.add_argument("--lossless", action="store_true", help="write full-song stems as FLAC instead of MP3")
-    args = parser.parse_args()
-    separate = load_method(args.method)
-
+def score(separate, args):
     rows, start = [], time.perf_counter()
     for track_dir in tracks(args.split):
         mix = load(track_dir / "mixture.wav")
@@ -73,6 +65,19 @@ def main():
         {"method": args.method, "split": args.split, "seconds": seconds, "median_sdr": summary,
          "per_track": rows}, indent=1))
 
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("method")
+    parser.add_argument("--split", default="test", choices=["train", "test"])
+    parser.add_argument("--song", action="store_true", help="render the 60 s song excerpts")
+    parser.add_argument("--full", action="store_true", help="render every full song in songs/")
+    parser.add_argument("--lossless", action="store_true", help="write full-song stems as FLAC instead of MP3")
+    parser.add_argument("--no-score", action="store_true", help="skip scoring on the MUSDB18 clips")
+    args = parser.parse_args()
+    separate = load_method(args.method)
+    if not args.no_score:
+        score(separate, args)
     if args.song:
         for path in sorted(EXCERPTS.glob("*.wav")):
             for k, v in run(separate, load(path)).items():

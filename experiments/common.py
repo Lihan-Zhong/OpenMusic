@@ -1,5 +1,6 @@
 """Shared helpers for the separation experiments: paths, audio I/O, the 3-stem target set, SDR scoring."""
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,12 @@ LOSSLESS_EXT = ".flac"
 # Keep every download (model weights, caches) inside the project folder.
 os.environ.setdefault("TORCH_HOME", str(ROOT / ".cache" / "torch"))
 os.environ.setdefault("HF_HOME", str(ROOT / ".cache" / "huggingface"))
+
+# Song names are Chinese: never let printing them crash a batch on a Windows console or a redirected
+# stdout in a non-UTF-8 code page (cp1252/GBK); unprintable characters become '?' instead.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
 
 SR = 44100
 STEMS = ("vocals", "drums", "other")  # "other" = bass + everything that is not vocals or drums

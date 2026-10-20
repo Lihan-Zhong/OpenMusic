@@ -7,17 +7,29 @@ speed/pitch). Desktop only: Python backend plus a locally served web page. The u
 app or a big software-engineering effort; keep proposals small. Talk to the user in Chinese.
 
 ## Current state (Oct 2026)
-- Experiment harness in `experiments/` (see README). Scores are median SDR on 50 MUSDB18 7 s test clips.
-- Classical DSP methods (`experiments/methods/`): best single family HPSS 4.4 dB; `combo` (learned per-band
-  fusion of 5 families) 4.8 dB. AI is far ahead: Demucs 9.2 dB (3 stems); BS-RoFormer-SW 10.3 dB
-  (4-stem score), clearly better on vocals/drums. Experiment reports: `results/method_info.json`.
-- MUSDB has no guitar stem, so guitar quality is judged by ear on the user's songs in `songs/`.
-- Not finished: RoFormer-SW has not yet been run on the user's song (it froze the 16 GB Mac).
+- Core purpose (user's words): "方便练琴扒谱子". Judge features by whether they help practising / transcribing.
+- Practice player works: `analyze.py` (tempo/beats/bars via Beat This! small0, key = S-KEY + Shaath profiles,
+  chords = template + Viterbi on stems) -> `transcribe.py` (Basic Pitch ONNX -> MIDI with tempo map + notes.json)
+  -> `build_player.py` (Signalsmith Stretch engine, wavesurfer.js UI; gain to +12 dB with limiter, speed regions,
+  A-B loop + speed trainer, pitch shift, metronome on detected beats, chord lane, piano roll). See README.
+- Split new songs without MUSDB18: `evaluate_multi.py roformer_sw --full --no-score` (heavy: run RoFormer on the
+  Windows GPU, not on the 16 GB Mac). Library on the Mac: outputs/mp3/<song>/ (3 songs).
+- Separation experiments: classical DSP best `combo` 4.8 dB; Demucs 9.2 dB (3 stems); BS-RoFormer-SW 10.3 dB.
+- Known gaps: chord extensions are hints; Beat This! can lock to 2x/4x in noise passages (Carsick 140-306 s);
+  guitar MIDI is a dense draft, fast low bass is missed; nobody has listened to slow-speed quality yet.
 
-## Next step on the desktop (RTX 4070 Ti)
-Set up per README, put the user's songs in `songs/`, then run
-`experiments/make_excerpts.py`, `experiments/evaluate_multi.py roformer_sw --split test --song --full`,
-`experiments/build_page.py`, and let the user compare guitar stems (Demucs 6-stem vs RoFormer-SW).
+## Testing
+- `experiments/tests/test_analyze.py` (~20 s), `experiments/tests/test_transcribe.py` (~6 s),
+  `experiments/tests/player_test.py` (~1 min, headless Chromium via Playwright, dev deps in requirements-dev.txt,
+  browsers in .cache/ms-playwright). `--memory`/`--cpu` decode the 6:45 song (~1.5 GB): run them alone.
+- `experiments/vendor/signalsmith-stretch/SignalsmithStretch.mjs` carries a documented two-line patch; re-apply
+  it if upgrading. basic-pitch is installed with --no-deps (requirements-nodeps.txt).
+
+## Next steps
+- On the Windows desktop (RTX 4070 Ti): install requirements.txt + requirements-nodeps.txt, run
+  `experiments/tests/player_test.py` there, split new songs with RoFormer on the GPU, then analyze -> transcribe
+  -> build_player. It has no GitHub login: send patches to the Mac session, which pushes.
+- Have the user listen: slow speeds (0.5-0.75x), a boosted quiet stem, ±12 semitones, and judge MIDI per stem.
 
 ## Conventions
 - Work inside this folder. Don't browse the user's personal folders; ask them to put files here.
