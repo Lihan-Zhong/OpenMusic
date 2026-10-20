@@ -42,20 +42,20 @@ def spectrogram_png(y, path, ref):
 
 
 def rel(path):
-    return quote(str(path.relative_to(ROOT)))
+    return quote(path.relative_to(ROOT).as_posix())
 
 
 def read_scores(pattern, prefix=""):
     scores = {}
     for f in sorted(RESULTS.glob(pattern)):
-        d = json.loads(f.read_text())
+        d = json.loads(f.read_text(encoding="utf-8"))
         if prefix or not f.name.startswith("multi_"):
             scores[d["method"]] = d["median_sdr"]
     return scores
 
 
 def main():
-    info = json.loads((RESULTS / "method_info.json").read_text()) if (RESULTS / "method_info.json").exists() else {}
+    info = json.loads((RESULTS / "method_info.json").read_text(encoding="utf-8")) if (RESULTS / "method_info.json").exists() else {}
 
     def label(m):
         return FIXED.get(m, (info.get(m, {}).get("title_zh", m), info.get(m, {}).get("idea_zh", "")))
@@ -74,7 +74,7 @@ def main():
     three = read_scores("*_test.json")
     all_scores = {**{m: s["mean"] for m, s in three.items()}, **{m: s["mean"] for m, s in multi.items()}}
 
-    excerpts = json.loads((EXCERPTS / "excerpts.json").read_text())
+    excerpts = json.loads((EXCERPTS / "excerpts.json").read_text(encoding="utf-8"))
     blocks = []
     for song in sorted(p.stem for p in EXCERPTS.glob("*.wav")):
         mix_path = EXCERPTS / f"{song}.wav"
@@ -118,7 +118,7 @@ def main():
                                         ("人声", "鼓", "贝斯", "其他*", "平均")) if multi else "")
             .replace("{{THREE}}", table(three, ("vocals", "drums", "other", "mean"), ("人声", "鼓", "其他（含贝斯）", "平均")))
             .replace("{{SONGS}}", "".join(blocks)))
-    (ROOT / "compare.html").write_text(page)
+    (ROOT / "compare.html").write_text(page, encoding="utf-8")
     print(f"wrote {ROOT / 'compare.html'}")
 
 

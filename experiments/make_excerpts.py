@@ -49,7 +49,7 @@ def main():
         info[path.stem] = {"source": path.name, "start_s": begin, "length_s": clip.shape[1] / SR,
                            "duration_s": mix.shape[1] / SR, "demucs_full_song_seconds": round(took, 1)}
         print(f"{path.name}: {mix.shape[1] / SR:.0f} s song, Demucs took {took:.1f} s, excerpt starts at {begin} s")
-    (EXCERPTS / "excerpts.json").write_text(json.dumps(info, indent=1, ensure_ascii=False))
+    (EXCERPTS / "excerpts.json").write_text(json.dumps(info, indent=1, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":
