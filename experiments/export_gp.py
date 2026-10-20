@@ -5,8 +5,7 @@ having to import and tidy up each MIDI file by hand.
     python experiments/export_gp.py outputs/mp3 --song "Carsick Cars - 中南海" --force
 
 For each <stems_root>/<song>/ folder with transcription/*.notes.json (from transcribe.py) this writes
-<song>/transcription/<song>.gp (Guitar Pro 7/8, the default download) and <song>.gp5 (for older versions), with
-one track per stem: guitar (6 strings, standard tuning, tab + notation),
+<song>/transcription/<song>.gp (Guitar Pro 7/8), with one track per stem: guitar (6 strings, standard tuning, tab + notation),
 bass (4 strings, tab + notation), vocals as a melody (notation only), piano and other (notation only) when
 they have at least MIN_TRACK_NOTES notes, and drums when transcription/drums.mid exists (any General MIDI drum
 file). Outputs newer than all their inputs are kept unless --force.
@@ -31,19 +30,16 @@ chord shapes whose strings do not cross. A chord with no playable fingering lose
 Chord names from analysis.json sit above every pitched track (Guitar Pro chord symbols, no diagrams); title,
 artist, key and tempo go in the file's score information.
 
-Text: Guitar Pro reads the text of a .gp5 in a single-byte code page (on macOS too), so a Chinese title in
-any encoding comes out garbled. The .gp5 therefore gets plain ASCII: Chinese as pinyin (pypinyin, MIT), e.g.
-"Zhong Nan Hai", while the .gp, whose score is UTF-8 XML, keeps the real title. Track and chord names are ASCII.
-
-The score is built and written with PyGuitarPro (Sviatoslav Abakumov, LGPL-3.0,
-https://github.com/Perlence/PyGuitarPro) as the .gp5, which is read back to check the bar count, tempo and note
-counts. gp7.py then turns it into the .gp with alphaTab (MPL-2.0, vendored), which reads that back the same way.
+The score is laid out with PyGuitarPro's song model (Sviatoslav Abakumov, LGPL-3.0,
+https://github.com/Perlence/PyGuitarPro) and handed to gp7.py as Guitar Pro 5 bytes in memory (no .gp5 file is
+written: Guitar Pro reads .gp5 text in a single-byte code page, so Chinese titles would come out garbled);
+alphaTab (MPL-2.0, vendored) turns them into the .gp, whose score is UTF-8 XML, so the song's real title is kept.
+The .gp is read back with alphaTab to check the title, bars, tempo, full bars and the notes of every track.
 """
 import argparse
+import io
 import json
-import re
 import time
-import unicodedata
 from importlib.metadata import version
 from itertools import combinations
 from pathlib import Path
@@ -51,7 +47,6 @@ from pathlib import Path
 import guitarpro as gp
 import mido
 import numpy as np
-from pypinyin import lazy_pinyin
 
 import gp7
 from transcribe import SETTINGS, read_analysis, seconds_to_beats, tempo_map
@@ -74,7 +69,7 @@ W_MOVE = 1.0                       # cost per fret the hand moves, divided by (1
 W_POSITION = 0.03                  # cost per fret of hand position per chord (a tie-break towards low positions)
 W_CROSS = 1.0                      # cost per pair of chord notes whose strings are in the opposite order
 MAX_FINGERINGS = 256               # enough for any chord within a hand span; caps big notation-only chords
-GP5_ENCODING = "cp1252"            # what Guitar Pro 5 itself writes; all text in the .gp5 is ASCII anyway
+GP5_TEXT = "utf-8"                 # text encoding of the in-memory Guitar Pro 5 bytes that alphaTab reads
 
 GUITAR = (64, 59, 55, 50, 45, 40)            # string 1 (high E4) to string 6 (low E2)
 BASS = (43, 38, 33, 28)                      # G2 D2 A1 E1
@@ -498,29 +493,6 @@ def split_name(name):
     return (title.strip(), artist.strip()) if sep else (name, "")
 
 
-PUNCTUATION = str.maketrans({"–": "-", "—": "-", "‘": "'", "’": "'", "“": '"', "”": '"', "…": "...", "·": "-",
-                             "、": ",", "《": '"', "》": '"', "【": "[", "】": "]"})
-
-
-def ascii_text(text):
-    """Text a .gp5 can hold: Chinese as capitalised pinyin, left out where the Latin text next to it already spells
-    it (想想XiangXiang -> XiangXiang); accents and anything else that is not ASCII dropped."""
-    parts = re.split(r"([\u3400-\u9fff\uf900-\ufaff]+)", text)   # Latin, Chinese, Latin, ...
-    words = []
-    for i, part in enumerate(parts):
-        if i % 2 == 0:
-            words.append(part.strip())
-            continue
-        pinyin = lazy_pinyin(part)
-        latin = re.sub(r"\s+", "", "".join(parts[i - 1:i + 2:2])).lower()
-        if "".join(pinyin).lower() not in latin:
-            words.append(" ".join(p.capitalize() for p in pinyin))
-    text = unicodedata.normalize("NFKD", " ".join(w for w in words if w).translate(PUNCTUATION))
-    text = "".join(c for c in text if not unicodedata.combining(c)).encode("ascii", errors="ignore").decode()
-    text = re.sub(r"([(\[]) +| +([)\],.!?:;])", r"\1\2", text)   # no space inside brackets or before commas
-    return re.sub(r" {2,}", " ", text).strip()
-
-
 def read_notes(song_dir):
     """{stem: (notes, method text)} for the transcribed stems; drums from transcription/drums.mid."""
     out, tdir = {}, song_dir / "transcription"
@@ -555,7 +527,7 @@ def build_song(song_dir, analysis, stems):
     key_text = ((analysis or {}).get("key") or {}).get("label_en")
     subtitle = ", ".join(filter(None, [key_text and f"Key: {key_text}",
                                        tempo_info.get("bpm") and f"{tempo_info['bpm']:g} BPM"]))
-    song = gp.Song(title=ascii_text(title), artist=ascii_text(artist), subtitle=subtitle,
+    song = gp.Song(title=title, artist=artist, subtitle=subtitle,
                    tab="OpenMusic (automatic draft)",
                    instructions="Automatic transcription: a draft to check by ear."
                                 + (" Bar 1 is a pickup (bar 0 in the OpenMusic player)."
@@ -611,42 +583,29 @@ def build_song(song_dir, analysis, stems):
         notice.append(f"{settings['name']}: {method}"[:250])
     if not song.tracks:
         return None, report
-    song.notice = [ascii_text(line) for line in notice]
+    song.notice = notice
     return song, report
 
 
-def check(path, report):
-    """Read the .gp5 back with PyGuitarPro: bar count, tempo, full bars, note counts as written."""
-    song = gp.parse(str(path), encoding=GP5_ENCODING)
+def check(song, report):
+    """Problems in what alphaTab reads back from the .gp (gp7.dump): title, artist, tempo, time signatures,
+    bars that do not add up, and struck notes per track against those written."""
     problems = []
-    if len(song.measureHeaders) != report["bars"]:
-        problems.append(f"{len(song.measureHeaders)} bars, expected {report['bars']}")
-    if song.tempo != report["tempo"]:
-        problems.append(f"tempo {song.tempo}, expected {report['tempo']}")
+    got = {"title": song["title"], "artist": song["artist"], "tempo": song["tempo"],
+           "signatures": [b["numerator"] for b in song["bars"]]}
+    for key, value in got.items():
+        if value != report[key]:
+            problems.append(f"{key} {value!r}, expected {report[key]!r}")
+    for track in song["tracks"]:
+        filled = {}
+        for beat in track["beats"]:
+            filled[beat["bar"]] = filled.get(beat["bar"], 0) + beat["ticks"]
+        short = [i + 1 for i, bar in enumerate(song["bars"]) if filled.get(i) != bar["ticks"]]
+        if short:
+            problems.append(f"{track['name']}: bars {short[:5]} do not add up")
     written = {r["name"]: r["notes"] for r in report["tracks"].values() if "notes" in r}
-    for track in song.tracks:
-        notes = 0
-        for measure in track.measures:
-            beats = measure.voices[0].beats
-            if sum(b.duration.time for b in beats) != measure.length:
-                problems.append(f"{track.name} bar {measure.number} is not full")
-            notes += sum(n.type == gp.NoteType.normal for b in beats for n in b.notes)
-        if notes != written.get(track.name):
-            problems.append(f"{track.name}: {notes} notes read back, {written.get(track.name)} written")
-    return problems
-
-
-def check_gp(data, report):
-    """Read the .gp back with alphaTab: title and artist in full, bars, time signatures, tempo, tracks, notes."""
-    got = gp7.summary(data)
-    problems = []
-    for key in ("title", "artist", "tempo", "signatures"):
-        if got[key] != report[key]:
-            problems.append(f"{key} {got[key]!r}, expected {report[key]!r}")
-    written = {r["name"]: r["notes"] for r in report["tracks"].values() if "notes" in r}
-    read = {t["name"]: t["notes"] for t in got["tracks"]}
-    if read != written:
-        problems.append(f"notes per track {read}, written {written}")
+    if gp7.summary(song) != written:
+        problems.append(f"notes per track {gp7.summary(song)}, written {written}")
     return problems
 
 
@@ -656,10 +615,11 @@ def up_to_date(out, inputs):
 
 def export_song(song_dir, force=False):
     tdir = song_dir / "transcription"
-    out, out5 = tdir / f"{song_dir.name}.gp", tdir / f"{song_dir.name}.gp5"
+    out = tdir / f"{song_dir.name}.gp"
+    (tdir / f"{song_dir.name}.gp5").unlink(missing_ok=True)   # written by earlier versions
     inputs = list(tdir.glob("*.notes.json")) + [tdir / "drums.mid", song_dir / "analysis.json"]
-    if not force and up_to_date(out, inputs) and up_to_date(out5, inputs):
-        print(f"{song_dir.name}: {out.name} and .gp5 are up to date (use --force to redo)")
+    if not force and up_to_date(out, inputs):
+        print(f"{song_dir.name}: {out.name} is up to date (use --force to redo)")
         return True
     start = time.perf_counter()
     stems = read_notes(song_dir)
@@ -667,22 +627,18 @@ def export_song(song_dir, force=False):
     if song is None:
         print(f"{song_dir.name}: nothing to write ({report['tracks']})")
         out.unlink(missing_ok=True)
-        out5.unlink(missing_ok=True)
         return False
-    tmp5 = out5.with_suffix(".gp5.tmp")
-    gp.write(song, str(tmp5), version=(5, 1, 0), encoding=GP5_ENCODING)
-    problems = check(tmp5, report)
-    data = gp7.to_gp(tmp5.read_bytes(), {"title": report["title"], "artist": report["artist"]})
-    problems += [f".gp: {p}" for p in check_gp(data, report)]
+    gp5 = io.BytesIO()
+    gp.write(song, gp5, version=(5, 1, 0), encoding=GP5_TEXT)
+    data = gp7.to_gp(gp5.getvalue())
+    problems = check(gp7.dump(data), report)
     if problems:
-        tmp5.unlink(missing_ok=True)
-        raise SystemExit(f"{song_dir.name}: the written file does not read back right: {'; '.join(problems)}")
+        raise SystemExit(f"{song_dir.name}: the .gp does not read back right: {'; '.join(problems)}")
     tmp = out.with_suffix(".gp.tmp")
     tmp.write_bytes(data)
-    tmp5.replace(out5)
     tmp.replace(out)
     changes = f" ({report['tempo_changes']} tempo changes)" if report["tempo_changes"] else ""
-    print(f"{song_dir.name}: {out.name} + .gp5, {report['bars']} bars, {report['tempo']} BPM{changes}, "
+    print(f"{song_dir.name}: {out.name}, {report['bars']} bars, {report['tempo']} BPM{changes}, "
           f"key {report['key'] or '?'}, {report['chords']} chord symbols, {time.perf_counter() - start:.1f} s")
     for stem, r in report["tracks"].items():
         if "skipped" in r:
@@ -700,7 +656,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("stems_root", type=Path)
     parser.add_argument("--song", help="only this song folder")
-    parser.add_argument("--force", action="store_true", help="redo songs whose .gp and .gp5 are up to date")
+    parser.add_argument("--force", action="store_true", help="redo songs whose .gp is up to date")
     args = parser.parse_args()
     if not args.stems_root.is_dir():
         raise SystemExit(f"no such folder: {args.stems_root}")

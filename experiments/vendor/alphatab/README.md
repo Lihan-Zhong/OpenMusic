@@ -8,7 +8,7 @@ https://github.com/CoderLine/alphaTab. `LICENSE` is the package's licence (MPL-2
 integrates (TinySoundFont, SFZero, Haxe std, SharpZipLib, NVorbis: MIT; libvorbis: BSD-3-Clause) are listed in
 the licence header at the top of `alphaTab.min.js`.
 
-Used by `experiments/gp7.py`, which runs it in an embedded V8 engine (mini-racer) to turn the Guitar Pro 5 file
-that `experiments/export_gp.py` writes into a Guitar Pro 7/8 `.gp` file (alphaTab's GP5 importer and GP7
-exporter), and to read `.gp` files back for the checks. Nothing else of alphaTab (rendering, player, fonts,
+Used by `experiments/gp7.py`, which runs it in an embedded V8 engine (mini-racer) to write the score that
+`experiments/export_gp.py` lays out (handed over as Guitar Pro 5 bytes in memory, never saved) as a Guitar Pro 7/8
+`.gp` file (alphaTab's GP5 importer and GP7 exporter), and to read `.gp` files back for the checks. Nothing else of alphaTab (rendering, player, fonts,
 soundfont) is used.

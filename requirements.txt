@@ -18,8 +18,7 @@ pretty_midi==0.2.11.post0
 mido==1.3.3
 mir_eval==0.8.2
 resampy==0.4.3
-# Guitar Pro export (experiments/export_gp.py, gp7.py): PyGuitarPro (LGPL-3.0) writes the .gp5; mini-racer (ISC,
-# embeds V8) runs the vendored alphaTab that turns it into the .gp; pypinyin (MIT) for ASCII titles in the .gp5
+# Guitar Pro export (experiments/export_gp.py, gp7.py): PyGuitarPro (LGPL-3.0) lays the score out; mini-racer
+# (ISC, embeds V8) runs the vendored alphaTab (experiments/vendor/alphatab/) that writes it as a .gp
 PyGuitarPro==0.11
 mini-racer==0.14.1
-pypinyin==0.55.0

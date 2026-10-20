@@ -1,16 +1,17 @@
 """Guitar Pro 7/8 (.gp) files through alphaTab, for export_gp.py and its tests.
 
-A .gp file is a zip whose Content/score.gpif is UTF-8 XML, so Chinese titles survive it; Guitar Pro 5 files do
-not (Guitar Pro reads their text in a single-byte code page, also on macOS). No maintained Python library writes
+A .gp file is a zip whose Content/score.gpif is UTF-8 XML, so Chinese titles survive it (Guitar Pro reads the
+text of the older .gp5 format in a single-byte code page, also on macOS). No maintained Python library writes
 .gp, so this runs alphaTab (CoderLine, MPL-2.0, vendored in experiments/vendor/alphatab/) in V8 embedded in
-Python (mini-racer, ISC): alphaTab's Guitar Pro 5 importer reads the .gp5 that export_gp.py wrote, the title and
-other text are set again in full Unicode, and its Guitar Pro 7 exporter writes the .gp. Chord symbols are names
-only (no empty diagrams), and tempo changes are steps. One fix-up after alphaTab: on a drum track it writes each
-note's General MIDI key where Guitar Pro expects the index of the kit piece in the track's drum kit, so the
-notes are pointed at the piece whose InputMidiNumbers hold that key (fix_drums).
+Python (mini-racer, ISC). export_gp.py lays the score out with PyGuitarPro and hands it over as Guitar Pro 5 bytes
+in memory, with UTF-8 text; alphaTab's Guitar Pro 5 importer reads them and its Guitar Pro 7 exporter writes the
+.gp. No .gp5 file is ever written. Chord symbols are names only (no empty diagrams), and tempo changes are steps.
+One fix-up after alphaTab: on a drum track it writes each note's General MIDI key where Guitar Pro expects the
+index of the kit piece in the track's drum kit, so the notes are pointed at the piece whose InputMidiNumbers
+hold that key (fix_drums).
 
-    gp_bytes = to_gp(gp5_bytes, {"title": "中南海", "artist": "Carsick Cars"})
-    summary(gp_bytes)   # {"title", "artist", "bars", "tempo", "signatures", "tracks": [{"name", "notes", ...}]}
+    gp_bytes = to_gp(gp5_bytes)
+    dump(gp_bytes)      # what alphaTab reads back: title, bars, and every beat and note of every track
 """
 import io
 import json
@@ -73,9 +74,8 @@ globalThis.openmusic = {
     settings.importer.encoding = 'utf-8';
     return alphaTab.importer.ScoreLoader.loadScoreFromBytes(openmusic.bytes(hex), settings);
   },
-  toGp(hex, meta) {
+  toGp(hex) {
     const score = openmusic.load(hex);
-    Object.assign(score, meta);
     for (const track of score.tracks)
       for (const staff of track.staves)
         for (const chord of staff.chords?.values() ?? []) { chord.showDiagram = false; chord.showFingering = false; }
@@ -87,30 +87,32 @@ globalThis.openmusic = {
       });
     return openmusic.hex(new alphaTab.exporter.Gp7Exporter().export(score, new alphaTab.Settings()));
   },
-  summary(hex) {
+  dump(hex) {
     const score = openmusic.load(hex);
     return JSON.stringify({
-      title: score.title, artist: score.artist, subtitle: score.subTitle, bars: score.masterBars.length,
-      tempo: score.tempo, signatures: score.masterBars.map(m => m.timeSignatureNumerator),
+      title: score.title, artist: score.artist, subtitle: score.subTitle, instructions: score.instructions,
+      tempo: score.tempo,
+      bars: score.masterBars.map(m => ({numerator: m.timeSignatureNumerator, denominator: m.timeSignatureDenominator,
+                                         key: m.keySignature, minor: m.keySignatureType === 1, ticks: m.calculateDuration(),
+                                         tempos: m.tempoAutomations.map(a => [a.value, a.isLinear])})),
       tracks: score.tracks.map(track => {
         const staff = track.staves[0];
-        let notes = 0, chords = 0;
-        const kit = {};   // drums: General MIDI key of each struck note -> count
-        for (const bar of staff.bars)
-          for (const voice of bar.voices)
-            for (const beat of voice.beats) {
-              const struck = beat.notes.filter(n => !n.isTieDestination);
-              notes += struck.length;
-              if (beat.chordId) chords++;
-              if (staff.isPercussion)
-                for (const n of struck) {
-                  const a = track.percussionArticulations[n.percussionArticulation];
-                  const key = a ? a.outputMidiNumber : n.percussionArticulation;   // .gp5: the key itself
-                  kit[key] = (kit[key] || 0) + 1;
-                }
-            }
-        return {name: track.name, notes, chords, percussion: staff.isPercussion, tab: staff.showTablature,
-                notation: staff.showStandardNotation, tuning: Array.from(staff.stringTuning.tunings), kit};
+        const beats = [];
+        staff.bars.forEach((bar, index) => {
+          for (const beat of bar.voices[0].beats)
+            beats.push({bar: index, tick: beat.absolutePlaybackStart, ticks: beat.playbackDuration,
+                        value: beat.duration, dots: beat.dots, tuplet: [beat.tupletNumerator, beat.tupletDenominator],
+                        rest: beat.isRest, chord: beat.chord ? beat.chord.name : null,
+                        notes: beat.notes.map(n => {
+                          const a = track.percussionArticulations[n.percussionArticulation];
+                          return {pitch: staff.isPercussion ? (a ? a.outputMidiNumber : n.percussionArticulation) : n.realValue,
+                                  string: n.string, fret: n.fret, tie: n.isTieDestination};
+                        })});
+        });
+        return {name: track.name, percussion: staff.isPercussion, channel: track.playbackInfo.primaryChannel,
+                tab: staff.showTablature,
+                notation: staff.showStandardNotation, tuning: Array.from(staff.stringTuning.tunings),
+                chords_shown: Array.from(staff.chords?.values() ?? []).filter(c => c.showDiagram).length, beats};
       }),
     });
   },
@@ -136,10 +138,9 @@ def engine():
     return _ctx
 
 
-def to_gp(gp5, meta):
-    """A Guitar Pro 5 file's bytes -> .gp bytes, with the score fields in meta (title, artist, subTitle, ...)
-    set in full Unicode."""
-    return fix_drums(bytes.fromhex(engine().call("openmusic.toGp", gp5.hex(), meta)))
+def to_gp(gp5):
+    """Guitar Pro 5 bytes (text in UTF-8) -> .gp bytes."""
+    return fix_drums(bytes.fromhex(engine().call("openmusic.toGp", gp5.hex())))
 
 
 def fix_drums(data):
@@ -184,8 +185,14 @@ def fix_drums(data):
     return out.getvalue()
 
 
-def summary(data):
-    """What alphaTab reads from a .gp (or .gp5) file: title, artist, bars, tempo, time signatures, and per
-    track its name, struck notes (not ties), chord symbols, percussion, tab / notation, tuning and, for drums,
-    the count of each General MIDI key played."""
-    return json.loads(engine().call("openmusic.summary", data.hex()))
+def dump(data):
+    """What alphaTab reads from a .gp file: title, artist, subtitle, instructions, tempo; per bar its time
+    signature, key, length in ticks (960 per quarter) and tempo changes; per track its name, drums or not, tab /
+    notation, MIDI channel, tuning, chord diagrams shown, and every beat of voice 1 (tick from the start, length, note value,
+    dots, tuplet, rest, chord name, notes: pitch (drums: General MIDI key), string (1 = lowest), fret, tie)."""
+    return json.loads(engine().call("openmusic.dump", data.hex()))
+
+
+def summary(song):
+    """A dump boiled down: {track name: number of struck notes (not ties)}."""
+    return {t["name"]: sum(not n["tie"] for b in t["beats"] for n in b["notes"]) for t in song["tracks"]}

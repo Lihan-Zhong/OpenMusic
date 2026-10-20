@@ -7,7 +7,7 @@ an A-B loop with a speed trainer, pitch shift, a metronome on the detected beats
 analyze.py / transcribe.py have run, tempo, key, a chord lane and a piano roll of the transcribed notes.
 
 Reads <stems_root>/<song>/{vocals,drums,bass,guitar,piano,other}.{mp3,flac,wav} and, if present,
-<song>/analysis.json, <song>/transcription/<stem>.{notes.json,mid} and <song>/transcription/<song>.{gp,gp5}
+<song>/analysis.json, <song>/transcription/<stem>.{notes.json,mid} and <song>/transcription/<song>.gp
 (export_gp.py). Re-run it after adding songs or running the analysis. The libraries are vendored in
 experiments/vendor/ and copied to <stems_root>/_player/:
 Signalsmith Stretch 1.3.2 (MIT) does the time-stretch and pitch shift, wavesurfer.js 7.12.12 (BSD-3-Clause)
@@ -77,7 +77,6 @@ TEXT = {
         "midi": "MIDI", "midi_title": "下载这一轨的扒谱 MIDI（可导入 Guitar Pro / MuseScore）",
         "gp": "Guitar Pro",
         "gp_title": "下载整首歌的 Guitar Pro 谱（.gp，Guitar Pro 7、8 用）：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名",
-        "gp5": ".gp5（旧版）", "gp5_title": "同一份谱，给 Guitar Pro 5、6 用；这种格式存不了中文，标题写成拼音",
         "limiting": "限幅中 {db} dB", "limiter_idle": "限幅器待命",
         "limiter_title": "调大音量后总输出也不会爆音：超过 −2 dBFS 的部分会被压下来",
         "bar_beat": "第 {bar} 小节 第 {beat} 拍", "beat_only": "第 {beat} 拍",
@@ -121,8 +120,6 @@ TEXT = {
         "gp": "Guitar Pro",
         "gp_title": "Download the whole song as one Guitar Pro file (.gp, for Guitar Pro 7 and 8): every stem a "
                     "track, tab for guitar and bass, chord names above",
-        "gp5": ".gp5 (older versions)",
-        "gp5_title": "The same score for Guitar Pro 5 and 6; that format cannot hold Chinese, so the title is in pinyin",
         "limiting": "Limiting {db} dB", "limiter_idle": "Limiter idle",
         "limiter_title": "Boosting never clips the output: anything above −2 dBFS is pulled down",
         "bar_beat": "Bar {bar}, beat {beat}", "beat_only": "Beat {beat}",
@@ -162,7 +159,6 @@ def find_songs(root):
             "midi": {s["name"]: quote(f"transcription/{s['name']}.mid") for s in stems
                      if found(f"transcription/{s['name']}.mid")},
             "gp": quote(f"transcription/{folder.name}.gp") if found(f"transcription/{folder.name}.gp") else None,
-            "gp5": quote(f"transcription/{folder.name}.gp5") if found(f"transcription/{folder.name}.gp5") else None,
         })
     return songs
 
@@ -1134,10 +1130,6 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
     if (!rollStem) { notes = null; layoutDetail(); return; }
     noteCache[rollStem] ??= fetch(song.base + song.notes[rollStem]).then(r => r.json()).catch(() => null);
     notes = await noteCache[rollStem];
-  if (song.gp && song.gp5) {
-    const a = document.createElement('a'); a.href = song.base + song.gp5; a.download = song.name + '.gp5';
-    a.textContent = T.gp5; a.title = T.gp5_title; $('roll-gp').append(' · ', a);
-  }
     rollRange = null;
     if (notes) {
       notes.notes.sort((p, q) => p[0] - q[0]);
