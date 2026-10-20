@@ -1,0 +1,7 @@
+# Only for the browser tests of the practice player (experiments/tests/player_test.py); the player itself needs none.
+#   PIP_CACHE_DIR=.cache/pip .venv/bin/pip install -r requirements-dev.txt
+#   PLAYWRIGHT_BROWSERS_PATH=.cache/ms-playwright .venv/bin/python -m playwright install chromium --only-shell
+# On Windows (PowerShell), in the project folder:
+#   $env:PIP_CACHE_DIR=".cache\pip"; .venv\Scripts\pip install -r requirements-dev.txt
+#   $env:PLAYWRIGHT_BROWSERS_PATH=".cache\ms-playwright"; .venv\Scripts\python -m playwright install chromium --only-shell
+playwright==1.63.0
