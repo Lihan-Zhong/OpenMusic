@@ -27,7 +27,7 @@
 1. **添加歌曲**：把 mp3 / wav / flac 拖进来，存到 `songs/`。
 2. **分轨**：选模型（见下面「分轨模型怎么选」），拆成 6 轨。每首歌会记下用的是哪个模型。
 3. **识别**：速度（拍子、小节）、调式、和弦。
-4. **转 MIDI**：每轨转成音符，可以导入 Guitar Pro / MuseScore；同时合成一份整首歌的 Guitar Pro 谱，点「下载 Guitar Pro」就能直接打开（见下面「Guitar Pro 谱」）。
+4. **转 MIDI**：每轨转成音符，鼓也转成鼓谱，可以导入 Guitar Pro / MuseScore；同时合成一份整首歌的 Guitar Pro 谱，点「下载 Guitar Pro」就能直接打开（见下面「Guitar Pro 谱」）。
 5. **练习**：点「打开」进入这首歌的练习播放器；播放器左上角可以回到工作台。
 
 「已整理的资料库」一栏是已经分好轨的歌（`outputs/mp3/`），直接从第 3 步开始。工作台只在本机运行（127.0.0.1），按钮背后就是下面「练习播放器」一节里的那几条命令。
@@ -41,6 +41,7 @@
 - **变速不变调**：50%–150%，可以在波形上拖出一段单独设速度，比如难的段落放慢到 70%；也能变调（± 半音和音分）。
 - **练习工具**：A-B 循环、速度练习（每循环一遍自动加快一点）、预备拍、跟着歌曲拍子响的节拍器。
 - **扒谱**：每轨自动转成 MIDI，网页里有钢琴卷帘，显示音名和"正在响"的音。MIDI 带歌曲的速度变化，每一拍、每条小节线都和播放器里的一样，导入 Guitar Pro / MuseScore 时小节能对上。贝斯最准，吉他、钢琴是比较密的参考草稿。卷帘下面还能下载整首歌的 Guitar Pro 谱。
+- **鼓谱**：鼓轨转成 General MIDI 鼓轨（底鼓、军鼓、踩镲和开镲、三个嗵鼓、强音镲、叮叮镲），网页里选「鼓」显示鼓谱视图，每种鼓件一行。底鼓、军鼓最准（真实录音分轨后 F 值约 0.9 / 0.8），踩镲是草稿，嗵鼓、镲片只作提示；做法、选型和评测见 [docs/drums.md](docs/drums.md)。
 - **快捷键**：空格 播放/暂停，L 循环开关，`[` `]` 调速，← → 前后一小节，M 节拍器。
 
 最方便的是用上面的工作台。也可以在终端里一条条跑（以 RoFormer 分轨为例，`songs/` 里的每首歌都会处理）：
@@ -123,6 +124,10 @@ experiments/
   build_page.py       生成对比试听页 compare.html（中文）和 compare.en.html（英文）
   analyze.py          识别速度（拍子、小节）、调式、和弦，写 analysis.json
   transcribe.py       每轨转 MIDI 和音符列表（transcription/）
+  drums.py            鼓轨转鼓谱：找起音，小神经网络判断鼓件（transcribe.py 调用）
+  train_drums.py      训练和评测 drums.py 的模型（E-GMD、合成鼓；MDB Drums 评测）
+  drum_synth.py       合成鼓和节奏型：鼓谱测试和一部分训练数据
+  models/             我们自己训练的模型权重：drums.npz
   export_gp.py        把各轨扒谱合成一个 Guitar Pro 谱（transcription/<歌名>.gp）
   gp7.py              用 alphaTab 写出 Guitar Pro 7/8 的 .gp，并读回检查
   build_player.py     生成练习播放器 player.html（中文）和 player.en.html（英文）
@@ -131,7 +136,7 @@ experiments/
   methods/            3 轨方法：每个文件一个 separate(mix, sr)
   methods_multi/      多轨 AI 模型：demucs4、demucs6、roformer_sw
 results/              每个方法的分数（JSON）和实验说明 method_info.json
-docs/                 实验记录：分轨方法对比和复现步骤
+docs/                 实验记录：分轨方法对比、鼓转 MIDI，和复现步骤
 ```
 
 不进仓库的（见 `.gitignore`）：`.venv/`、`.cache/`（模型权重）、`data/`（数据集）、`songs/`（你的歌）、`outputs/`（分好的音轨）。
@@ -177,6 +182,7 @@ python -m venv .venv
 - Copyright (C) 2026 Lihan Zhong。代码采用 GNU Affero 通用公共许可证 v3.0（AGPL-3.0，见 [LICENSE](LICENSE)）。任何人都可以使用、修改、再发布，但衍生项目也必须以 AGPL-3.0 开源。把修改后的版本做成网站等网络服务提供给别人用，也要向用户公开源代码。
 - MUSDB18 数据只能用于非商业的教育和学术用途，所以不放进仓库。`*_stats.npz` 和 `experiments/methods/stereo.py` 里的增益表，是从它的训练集统计出来的少量参数，适用 MUSDB18 的条款，不属于 AGPL 范围。
 - Demucs 的模型权重不在 MIT 协议范围内，作者说明“仅供科学研究用途”（facebookresearch/demucs#327）。BS-RoFormer-SW 是社区流传的权重，训练者和协议都不明。个人练习可以，不要拿去商用。
+- `experiments/models/drums.npz` 是我们用 `experiments/train_drums.py` 训练的权重，训练数据是 E-GMD（CC BY 4.0，需注明出处，见致谢）和程序合成的鼓。评测用的 MDB Drums 是 CC BY-NC-SA 4.0，只在本机评测，没有用来训练，也不放进仓库。
 - 不要把别人的歌或分好的音轨提交进仓库。
 - `experiments/vendor/` 里收录的第三方代码保留各自的协议（MIT / BSD-3-Clause / MPL-2.0），见各目录的 LICENSE。S-KEY 只能从仓库里收录的这份用，**不要** `pip install skey`，那是一个不相干的同名包。
 
@@ -213,6 +219,8 @@ python -m venv .venv
 - [S-KEY](https://github.com/deezer/skey)（Deezer，ICASSP 2025，MIT）：调式识别模型，收录在 `experiments/vendor/skey/`；依赖 [nnAudio](https://github.com/KinWaiCheuk/nnAudio)（MIT）。
 - 调式模板数据取自 [Essentia](https://github.com/MTG/essentia) 的 key.cpp（AGPL-3.0）；和弦识别的模板 + Viterbi 做法参照 librosa 文档里的示例。
 - [Basic Pitch](https://github.com/spotify/basic-pitch)（Spotify，ICASSP 2022，Apache-2.0）：转 MIDI，用 [ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT）运行；MIDI 读写用 [pretty_midi](https://github.com/craffel/pretty-midi)（MIT）和 [mido](https://github.com/mido/mido)（MIT），评测用 [mir_eval](https://github.com/mir-evaluation/mir_eval)（MIT），重采样用 [resampy](https://github.com/bmcfee/resampy)（ISC）。
+- E-GMD：L. Callender, C. Hawthorne & J. Engel, “Improving Perceptual Quality of Drum Transcription with the Expanded Groove MIDI Dataset”, 2020（[链接](https://magenta.tensorflow.org/datasets/e-gmd)，CC BY 4.0）：训练鼓谱模型 `experiments/models/drums.npz`。
+- MDB Drums：C. Southall, C. Wu, A. Lerch & J. Hockman, “MDB Drums: An Annotated Subset of MedleyDB for Automatic Drum Transcription”, ISMIR 2017（[仓库](https://github.com/CarlSouthall/MDBDrums)，CC BY-NC-SA 4.0）：只用来评测鼓谱；音频来自 MedleyDB（R. Bittner et al., ISMIR 2014）。
 - [PyGuitarPro](https://github.com/Perlence/PyGuitarPro)（Sviatoslav Abakumov，LGPL-3.0）：在内存里排好 Guitar Pro 谱；它依赖 [attrs](https://github.com/python-attrs/attrs)（MIT）。
 - [alphaTab](https://github.com/CoderLine/alphaTab)（Daniel Kuschny 等，MPL-2.0）：把排好的谱写成 Guitar Pro 7/8 的 .gp，并读回检查；收录的是 1.8.4 版，未修改，见 `experiments/vendor/alphatab/README.md`。它在 [mini-racer](https://github.com/bpcreech/PyMiniRacer)（ISC，内含 [V8](https://v8.dev)，BSD-3-Clause）里运行。
 - [Playwright](https://github.com/microsoft/playwright-python)（Apache-2.0）：只用于播放器的自动测试。

@@ -31,8 +31,8 @@ runs at a time so the computer stays responsive:
 2. **Split**: choose a model (see "Choosing a separation model" below) to get 6 stems. Each song records which
    model split it.
 3. **Analyze**: tempo (beats, bars), key, chords.
-4. **MIDI**: every stem becomes notes you can import into Guitar Pro / MuseScore, plus one Guitar Pro file of the
-   whole song that opens directly ("Download Guitar Pro"; see "Guitar Pro file" below).
+4. **MIDI**: every stem becomes notes you can import into Guitar Pro / MuseScore (the drums too, as a drum part),
+   plus one Guitar Pro file of the whole song that opens directly ("Download Guitar Pro"; see "Guitar Pro file" below).
 5. **Practise**: "Open" goes to the song's practice player; the top left of the player leads back to the workbench.
 
 The "Collected library" tab holds songs that are already split (`outputs/mp3/`) and starts at step 3. The
@@ -55,6 +55,10 @@ Once a song is split into stems, practise with it in a local web page:
   sounding now. The MIDI carries the song's tempo changes and has exactly the player's beats and bar lines, so
   bars line up when imported into Guitar Pro or MuseScore. Bass is the most accurate; guitar and piano are
   dense rough drafts. Below the piano roll there is also the whole song as a Guitar Pro file.
+- **Drums**: the drum stem becomes a General MIDI drum track (kick, snare, closed and open hi-hat, three toms,
+  crash, ride); choose "Drums" in the note view to see one row per kit piece. Kick and snare are the most
+  accurate (F about 0.9 / 0.8 on real recordings split from the mix), hi-hat is a draft, toms and cymbals are
+  hints; how it works, the options we ruled out and the scores are in [docs/drums.en.md](docs/drums.en.md).
 - **Shortcuts**: space play/pause, L loop on/off, `[` `]` speed, ← → one bar back/forward, M metronome.
 
 The workbench above is the easiest way. You can also run the steps one by one in a terminal (with RoFormer
@@ -166,6 +170,10 @@ experiments/
   build_page.py       build the listening pages compare.html (Chinese) and compare.en.html (English)
   analyze.py          detect tempo (beats, bars), key and chords; writes analysis.json
   transcribe.py       turn each stem into MIDI and a note list (transcription/)
+  drums.py            drum stem to drum hits: onsets, then a small neural network names the kit pieces
+  train_drums.py      train and score the drums.py model (E-GMD, synthetic drums; scored on MDB Drums)
+  drum_synth.py       synthetic drum kits and grooves: the drum test and part of the training data
+  models/             model weights we trained ourselves: drums.npz
   export_gp.py        put the stems' transcriptions into one Guitar Pro file (transcription/<song>.gp)
   gp7.py              write the Guitar Pro 7/8 .gp with alphaTab, and read it back
   build_player.py     build the practice player player.html (Chinese) and player.en.html (English)
@@ -174,7 +182,7 @@ experiments/
   methods/            3-stem methods, one separate(mix, sr) per file
   methods_multi/      multi-stem AI models: demucs4, demucs6, roformer_sw
 results/              each method's scores (JSON) and experiment notes in method_info.json
-docs/                 experiment notes: the separation comparison and how to reproduce it
+docs/                 experiment notes: the separation comparison, drums to MIDI, and how to reproduce them
 ```
 
 Not in the repo (see `.gitignore`): `.venv/`, `.cache/` (model weights), `data/` (dataset),
@@ -232,6 +240,9 @@ To reproduce the separation comparison (it needs the MUSDB18 test data), see [do
   for scientific purposes" (facebookresearch/demucs#327). BS-RoFormer-SW is a community-shared checkpoint
   whose trainer and licence are unknown. Fine for personal practice;
   don't use them commercially.
+- `experiments/models/drums.npz` holds weights we trained with `experiments/train_drums.py` on E-GMD (CC BY 4.0,
+  attribution required, see the acknowledgements) and synthesised drums. MDB Drums, used for scoring, is
+  CC BY-NC-SA 4.0: it is only scored on locally, never trained on, and not in the repo.
 - Don't commit other people's songs or separated stems to the repo.
 - Third-party code in `experiments/vendor/` keeps its own licence (MIT / BSD-3-Clause / MPL-2.0), see the LICENSE in each
   folder. Use S-KEY only from the copy in the repo; **don't** `pip install skey`, which is an unrelated package.
@@ -269,6 +280,12 @@ This project builds on many open-source projects and research results. Thank you
 - [S-KEY](https://github.com/deezer/skey) (Deezer, ICASSP 2025, MIT): key detection model, included in `experiments/vendor/skey/`; needs [nnAudio](https://github.com/KinWaiCheuk/nnAudio) (MIT).
 - Key profile tables from [Essentia](https://github.com/MTG/essentia)'s key.cpp (AGPL-3.0); the template + Viterbi chord recipe follows the example in librosa's documentation.
 - [Basic Pitch](https://github.com/spotify/basic-pitch) (Spotify, ICASSP 2022, Apache-2.0): MIDI transcription, run with [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT); MIDI I/O with [pretty_midi](https://github.com/craffel/pretty-midi) (MIT) and [mido](https://github.com/mido/mido) (MIT), evaluation with [mir_eval](https://github.com/mir-evaluation/mir_eval) (MIT), resampling with [resampy](https://github.com/bmcfee/resampy) (ISC).
+- E-GMD: L. Callender, C. Hawthorne & J. Engel, “Improving Perceptual Quality of Drum Transcription with the
+  Expanded Groove MIDI Dataset”, 2020 ([link](https://magenta.tensorflow.org/datasets/e-gmd), CC BY 4.0): training
+  data of the drum model `experiments/models/drums.npz`.
+- MDB Drums: C. Southall, C. Wu, A. Lerch & J. Hockman, “MDB Drums: An Annotated Subset of MedleyDB for Automatic
+  Drum Transcription”, ISMIR 2017 ([repository](https://github.com/CarlSouthall/MDBDrums), CC BY-NC-SA 4.0): only
+  to score the drum transcription; its audio comes from MedleyDB (R. Bittner et al., ISMIR 2014).
 - [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) (Sviatoslav Abakumov, LGPL-3.0): lays the Guitar Pro score out in memory; it depends on [attrs](https://github.com/python-attrs/attrs) (MIT).
 - [alphaTab](https://github.com/CoderLine/alphaTab) (Daniel Kuschny and contributors, MPL-2.0): writes that score as a Guitar Pro 7/8 .gp and reads it back; version 1.8.4 is included unmodified, see `experiments/vendor/alphatab/README.md`. It runs in [mini-racer](https://github.com/bpcreech/PyMiniRacer) (ISC, which embeds [V8](https://v8.dev), BSD-3-Clause).
 - [Playwright](https://github.com/microsoft/playwright-python) (Apache-2.0): only for the player's automated tests.

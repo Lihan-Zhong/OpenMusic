@@ -12,6 +12,9 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   chords = template + Viterbi on stems) -> `transcribe.py` (Basic Pitch ONNX -> MIDI with tempo map + notes.json)
   -> `build_player.py` (Signalsmith Stretch engine, wavesurfer.js UI; gain to +12 dB with limiter, speed regions,
   A-B loop + speed trainer, pitch shift, metronome on detected beats, chord lane, piano roll). See README.
+- Drums: `drums.py` (onset candidates + MLP, weights experiments/models/drums.npz trained by `train_drums.py` on
+  E-GMD CC BY 4.0 + `drum_synth.py` loops) -> transcription/drums.mid on channel 10; player drum lane. Held-out
+  MDB Drums (Demucs-split): kick 0.90, snare 0.82, hi-hat 0.64, cymbals 0.49, toms 0.16 (docs/drums.md).
 - Workbench `experiments/app.py` (stdlib only, http://localhost:8780) is the main entry: upload to songs/ ->
   split (Demucs 6 or RoFormer via `evaluate_multi.py <model> --full --no-score --only=<song>`) -> analyze ->
   transcribe -> build_player, one job at a time; the player links back to it. Hardened: 127.0.0.1, Host check,
@@ -27,6 +30,7 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
 
 ## Testing
 - `experiments/tests/test_analyze.py` (~20 s), `experiments/tests/test_transcribe.py` (~6 s),
+  `experiments/tests/test_drums.py` (~5 s),
   `experiments/tests/player_test.py` (~1 min, headless Chromium via Playwright, dev deps in requirements-dev.txt,
   browsers in .cache/ms-playwright). `--memory`/`--cpu` decode the 6:45 song (~1.5 GB): run them alone.
 - `experiments/vendor/signalsmith-stretch/SignalsmithStretch.mjs` carries a documented two-line patch; re-apply

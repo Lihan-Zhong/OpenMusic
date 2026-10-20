@@ -8,7 +8,7 @@ Training data: part of E-GMD v1.0.0 (Callender, Hawthorne & Engel, "Improving Pe
 Transcription with the Expanded Groove MIDI Dataset", 2020; CC BY 4.0): human performances on a Roland TD-17
 e-drum kit, each rendered through up to 43 of its kits, with the MIDI of what was played. Of its train split
 we take, per kit, PER_KIT beats and fills (distinct performances where possible); single members are read out
-of the 96 GB zip with HTTP range requests, about 1.3 GB in all, into data/e-gmd/ (git-ignored). Each file is
+of the 96 GB zip with HTTP range requests, about 0.8 GB in all, into data/e-gmd/ (git-ignored). Each file is
 used as it is and AUGMENT more times through random EQ, compression, room reverb, quiet pitched bleed and a
 low-pass, so that the classifier also fits drum stems separated from a mix. On top come SYNTH_LOOPS loops of
 random synthetic kits playing random bars (drum_synth.random_loop, half of them augmented too): with E-GMD alone
