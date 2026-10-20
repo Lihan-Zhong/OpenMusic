@@ -8,6 +8,7 @@ keeps a 16 GB laptop responsive):
   1. split into stems     evaluate_multi.py <model> --full --no-score --only <song>
   2. tempo, key, chords   analyze.py <library> --song <song>
   3. MIDI per stem        transcribe.py <library> --song <song>
+     Guitar Pro file      export_gp.py <library> --song <song>   (after every analyze or transcribe)
   4. practice player      build_player.py <library>
 It also serves the project folder like `python -m http.server`, so the player opens from the same address.
 Only standard-library Python; listens on 127.0.0.1 only and accepts actions only from its own page.
@@ -44,7 +45,7 @@ LIBRARIES = {
     "roformer_sw": {"root": OUTPUTS / "roformer_sw_full", "split": "roformer_sw"},
     "mp3": {"root": OUTPUTS / "mp3", "split": None},
 }
-STEPS = ("split", "analyze", "transcribe", "player")
+STEPS = ("split", "analyze", "transcribe", "gp", "player")
 
 
 def detect_hardware():
@@ -140,8 +141,12 @@ def song_status(key, name, sources):
     # A step is done only if its output is newer than the stems (a re-split makes analysis and MIDI stale).
     an_ok = bool(analysis and "error" not in analysis) and path.stat().st_mtime >= stems_t
     tr_ok = tdir.is_dir() and mtime([tdir]) >= stems_t and (not mids or min(p.stat().st_mtime for p in mids) >= stems_t)
+    gp_file = tdir / f"{name}.gp5"
+    gp_inputs = list(tdir.glob("*.notes.json")) * tdir.is_dir() + mids + [path] * path.exists()
+    gp_ok = tr_ok and (gp_file.exists() and gp_file.stat().st_mtime >= mtime(gp_inputs) or not mids)
     player = lib["root"] / "player.html"
     readable = stems_paths + [path] * path.exists() + list(tdir.glob("*.notes.json")) * tdir.is_dir() + mids
+    readable += [gp_file] * gp_file.exists()
     player_state = "missing" if not player.exists() else ("stale" if player.stat().st_mtime < mtime(readable) else "ok")
     info = read_stems_info(folder) or {}
     model = info.get("model") if info.get("model") in MODELS else (lib["split"] if stems and lib["split"] else None)
@@ -155,10 +160,11 @@ def song_status(key, name, sources):
     return {"name": name, "source": sources.get(name), "stems": stems, "model": model if stems else None,
             "analysis": analysis, "midi": [p.stem for p in mids],
             "midi_urls": {p.stem: f"/{rel}/{quote(name)}/transcription/{quote(p.name)}" for p in mids},
+            "gp_url": f"/{rel}/{quote(name)}/transcription/{quote(gp_file.name)}" if gp_file.exists() else None,
             "player": player_state,
-            "player_url": f"/{rel}/player.html?song={quote(name)}" if stems and player.exists() else None,
+            "player_url": f"/{rel}/player.html?song={quote(name)}&from=workbench" if stems and player.exists() else None,
             "split_stale": bool(stems) and not split_ok,
-            "done": {"split": split_ok, "analyze": an_ok, "transcribe": tr_ok,
+            "done": {"split": split_ok, "analyze": an_ok, "transcribe": tr_ok, "gp": gp_ok,
                      "player": bool(stems) and player_state == "ok"}}
 
 
@@ -277,7 +283,7 @@ def command(job):
         return [py, str(scripts / "evaluate_multi.py"), lib["split"], "--full", "--no-score", f"--only={song}"]
     if job["step"] == "player":
         return [py, str(scripts / "build_player.py"), root]
-    script = {"analyze": "analyze.py", "transcribe": "transcribe.py"}[job["step"]]
+    script = {"analyze": "analyze.py", "transcribe": "transcribe.py", "gp": "export_gp.py"}[job["step"]]
     return [py, str(scripts / script), root, f"--song={song}"] + (["--force"] if job["force"] else [])
 
 
@@ -399,7 +405,9 @@ class Handler(SimpleHTTPRequestHandler):
             steps = [s for s in steps if s != "split"]
         if not status["stems"] and "split" not in steps:
             return self._json({"error": "no stems yet"}, 400)
-        if any(s in steps for s in ("split", "analyze", "transcribe")) and "player" not in steps:
+        if any(s in steps for s in ("analyze", "transcribe")) and "gp" not in steps:
+            steps.append("gp")  # the Guitar Pro file takes its bars and chords from the analysis, notes from the MIDI
+        if any(s in steps for s in ("split", "analyze", "transcribe", "gp")) and "player" not in steps:
             steps.append("player")  # the player page lists songs and their files at build time
         ids = [self.jobs.add(key, song, s, force=bool(body.get("force"))) for s in STEPS if s in steps]
         return self._json({"ok": True, "jobs": ids})
@@ -560,7 +568,7 @@ pre{background:var(--chip);border-radius:8px;padding:10px;max-height:260px;overf
 const MODEL={zh:{demucs6:'Demucs 6 轨',demucs4:'Demucs 4 轨',demucs_ai:'Demucs 4 轨',roformer_sw:'BS-RoFormer-SW 6 轨'},en:{demucs6:'Demucs 6-stem',demucs4:'Demucs 4-stem',demucs_ai:'Demucs 4-stem',roformer_sw:'BS-RoFormer-SW 6-stem'}};
 const STEM={zh:{vocals:'人声',drums:'鼓',bass:'贝斯',guitar:'吉他',piano:'钢琴/键盘',other:'其他'},en:{vocals:'vocals',drums:'drums',bass:'bass',guitar:'guitar',piano:'piano/keys',other:'other'}};
 const T={zh:{title:'OpenMusic 工作台',intro:'把一首歌从音频文件一路处理到练习播放器。每一步都可以单独运行或重做；“一键处理”会按顺序跑完还没做的步骤。同一时间只跑一个任务，免得电脑卡。',
-s1:'添加歌曲',s1d:'拖一个 mp3 / wav / flac 进来，存到 songs/',s2:'分轨',s2d:'用 AI 拆成人声、鼓、贝斯、吉他、钢琴、其他',s3:'分析',s3d:'速度、拍号和小节线、调、和弦',s4:'扒谱（MIDI）',s4d:'把每轨的音符写成 MIDI，可导入 Guitar Pro / MuseScore（鼓没有音高，不转）',s5:'练习',s5d:'在练习播放器里调音量、变速、循环、扒谱',
+s1:'添加歌曲',s1d:'拖一个 mp3 / wav / flac 进来，存到 songs/',s2:'分轨',s2d:'用 AI 拆成人声、鼓、贝斯、吉他、钢琴、其他',s3:'分析',s3d:'速度、拍号和小节线、调、和弦',s4:'扒谱（MIDI）',s4d:'把每轨的音符写成 MIDI，并合成一份带六线谱和和弦名的 Guitar Pro 谱（鼓没有音高，不转）',s5:'练习',s5d:'在练习播放器里调音量、变速、循环、扒谱',
 add:'1. 添加歌曲',drop:'把音频文件拖到这里，或点这里选择文件',lib:'2–5. 处理歌曲',c_song:'歌曲',c_split:'分轨',c_an:'速度 / 调',c_midi:'MIDI',c_player:'练习播放器',jobs:'任务',
 L_demucs6:'Demucs 6 轨',L_demucs6s:'任何电脑都能跑，Mac 上一首约 1 分钟',L_roformer_sw:'RoFormer 6 轨',L_roformer_sws:'效果更好，需要 NVIDIA 显卡',L_mp3:'已整理的资料库',L_mp3s:'outputs/mp3，已经分好轨，每首注明了模型',
 note_split:'分轨结果在 {root}/。',note_nosplit:'这里的歌已经分好轨（{root}/），从第 3 步开始。',
@@ -568,15 +576,15 @@ gpunote:'这台电脑没有 NVIDIA 显卡：不建议在这里用 RoFormer 分�
 gpuwarn:'这台电脑没有 NVIDIA 显卡：RoFormer 会很慢，还可能占用 6 GB 以上内存让电脑卡住，建议在显卡电脑上跑。仍要继续吗？',
 all:'一键处理',practise:'去练习',redo:'重做',run:'运行',open:'打开',none:'这里还没有歌。先在上面添加一首。',nosrc:'没有原始音频',
 st_ok:'完成',st_todo:'未做',st_run:'进行中',st_queued:'排队中',st_bad:'失败',st_stale:'需更新',
-stems:'{n} 轨',midi:'{n} 轨：',model_unknown:'模型未知',conf:'把握 {p}%',idle:'现在没有任务在跑。',cancel:'停止',queue:'排队中：',recent:'最近：',
-step_split:'分轨',step_analyze:'分析',step_transcribe:'扒谱',step_player:'生成播放器',elapsed:'已用 {s} 秒',
+stems:'{n} 轨',midi:'{n} 轨：',gp:'下载 Guitar Pro',gp_title:'整首歌的 Guitar Pro 谱：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名',model_unknown:'模型未知',conf:'把握 {p}%',idle:'现在没有任务在跑。',cancel:'停止',queue:'排队中：',recent:'最近：',
+step_split:'分轨',step_analyze:'分析',step_transcribe:'扒谱',step_gp:'生成 Guitar Pro 谱',step_player:'生成播放器',elapsed:'已用 {s} 秒',
 j_done:'完成',j_failed:'失败',j_cancelled:'已停止',j_skipped:'跳过（前一步没成功）',showlog:'查看日志',
 up_busy:'正在添加：{n} …',up_ok:'已添加：{n}',up_exists:'{n} 已经在 songs/ 里了，要覆盖吗？',up_bad:'不支持这个文件类型：{n}（可以用 mp3、wav、flac、m4a、aac、ogg）',
 up_big:'文件太大（上限 400 MB）：{n}',up_name:'文件名不能用：{n}（不能以点、下划线、减号开头，也不能含有 \\ / : * ? " < > |）',up_twin:'songs/ 里已经有同名但格式不同的歌：{n}',up_cut:'上传中断了，请再试一次：{n}',up_err:'保存失败：{n}（文件可能正被别的程序占用）',
 hw:'这台电脑：{p}，{g}，内存 {r} GB',offline:'连不上工作台了：运行它的终端窗口可能已经关闭。重新运行 python experiments/app.py 后刷新本页。',
 foot:'工作台只在本机运行（127.0.0.1）。它调用的就是 README 里的那几条命令，也可以直接在终端里跑。'},
 en:{title:'OpenMusic workbench',intro:'Take a song from an audio file all the way to the practice player. Each step can be run or redone on its own; “Process all” runs the missing steps in order. One job runs at a time, so the computer stays responsive.',
-s1:'Add a song',s1d:'drop an mp3 / wav / flac here; it is saved to songs/',s2:'Split',s2d:'AI separates vocals, drums, bass, guitar, piano, other',s3:'Analyze',s3d:'tempo, time signature and bar lines, key, chords',s4:'Transcribe (MIDI)',s4d:'notes of each stem as MIDI for Guitar Pro / MuseScore (not drums)',s5:'Practise',s5d:'volume, speed, loops and transcription in the player',
+s1:'Add a song',s1d:'drop an mp3 / wav / flac here; it is saved to songs/',s2:'Split',s2d:'AI separates vocals, drums, bass, guitar, piano, other',s3:'Analyze',s3d:'tempo, time signature and bar lines, key, chords',s4:'Transcribe (MIDI)',s4d:'notes of each stem as MIDI, plus one Guitar Pro file with tab and chord names (not drums)',s5:'Practise',s5d:'volume, speed, loops and transcription in the player',
 add:'1. Add a song',drop:'Drop audio files here, or click to choose',lib:'2–5. Process songs',c_song:'Song',c_split:'Stems',c_an:'Tempo / key',c_midi:'MIDI',c_player:'Practice player',jobs:'Jobs',
 L_demucs6:'Demucs 6-stem',L_demucs6s:'runs on any computer, about 1 min per song on a Mac',L_roformer_sw:'RoFormer 6-stem',L_roformer_sws:'better quality, needs an NVIDIA GPU',L_mp3:'Collected library',L_mp3s:'outputs/mp3, already split; each song shows its model',
 note_split:'Stems go to {root}/.',note_nosplit:'Songs here are already split ({root}/); start at step 3.',
@@ -584,8 +592,8 @@ gpunote:'This computer has no NVIDIA GPU: splitting with RoFormer here is not re
 gpuwarn:'This computer has no NVIDIA GPU: RoFormer will be slow and may use over 6 GB of memory and freeze the computer. Running it on a GPU machine is recommended. Continue anyway?',
 all:'Process all',practise:'Practise',redo:'Redo',run:'Run',open:'Open',none:'No songs here yet. Add one above first.',nosrc:'no source audio',
 st_ok:'done',st_todo:'not yet',st_run:'running',st_queued:'queued',st_bad:'failed',st_stale:'needs update',
-stems:'{n} stems',midi:'{n} stems: ',model_unknown:'model unknown',conf:'{p}% sure',idle:'No job is running.',cancel:'Stop',queue:'Queued: ',recent:'Recent:',
-step_split:'split',step_analyze:'analyze',step_transcribe:'transcribe',step_player:'build player',elapsed:'{s} s so far',
+stems:'{n} stems',midi:'{n} stems: ',gp:'Download Guitar Pro',gp_title:'The whole song as one Guitar Pro file: every stem a track, tab for guitar and bass, chord names above',model_unknown:'model unknown',conf:'{p}% sure',idle:'No job is running.',cancel:'Stop',queue:'Queued: ',recent:'Recent:',
+step_split:'split',step_analyze:'analyze',step_transcribe:'transcribe',step_gp:'Guitar Pro export',step_player:'build player',elapsed:'{s} s so far',
 j_done:'done',j_failed:'failed',j_cancelled:'stopped',j_skipped:'skipped (previous step failed)',showlog:'show log',
 up_busy:'Adding {n} …',up_ok:'Added: {n}',up_exists:'{n} is already in songs/. Overwrite it?',up_bad:'Unsupported file type: {n} (use mp3, wav, flac, m4a, aac or ogg)',
 up_big:'File too large (max 400 MB): {n}',up_name:'This file name cannot be used: {n} (it must not start with a dot, underscore or hyphen, or contain \\ / : * ? " < > |)',up_twin:'songs/ already has a song with this name in another format: {n}',up_cut:'Upload interrupted, please try again: {n}',up_err:'Could not save {n} (it may be open in another program)',
@@ -620,14 +628,17 @@ function render(){if(!S)return;const L=S.libraries;const tabs=document.getElemen
  if(!cur.songs.length){rows.innerHTML=`<tr><td colspan=6 class=muted>${t('none')}</td></tr>`}else rows.innerHTML=cur.songs.map(s=>{const a=s.analysis&&!s.analysis.error?s.analysis:null;const d=s.done;
   const canSplit=!!cur.split&&!!s.source;const busy=active().some(x=>x.library===lib&&x.song===s.name);
   const btn=(step,label,en)=>`<button class=act data-song="${esc(s.name)}" data-step=${step} ${en&&!busy?'':'disabled'}>${label}</button>`;
-  const allDone=d.split&&d.analyze&&d.transcribe&&d.player;
-  const midi=s.midi.length?t('midi',{n:s.midi.length})+s.midi.map(m=>`<a href="${esc(s.midi_urls[m])}" download>${esc(STEM[lang][m]||m)}</a>`).join(lang==='zh'?'、':', '):'';
+  const allDone=d.split&&d.analyze&&d.transcribe&&d.gp&&d.player;
+  const midi=(s.midi.length?t('midi',{n:s.midi.length})+s.midi.map(m=>`<a href="${esc(s.midi_urls[m])}" download>${esc(STEM[lang][m]||m)}</a>`).join(lang==='zh'?'、':', '):'')
+   +(s.gp_url?`<div><a href="${esc(s.gp_url)}" download title="${esc(t('gp_title'))}">⬇ ${t('gp')}</a></div>`:'');
+  const gpRun=lastRun(s.name,'gp'),trRun=lastRun(s.name,'transcribe');
+  const midiStep=jobFor(s.name,'transcribe')?'transcribe':jobFor(s.name,'gp')||(gpRun&&gpRun.status==='failed'&&!(trRun&&trRun.status==='failed'))?'gp':'transcribe';
   const last=allDone&&!busy?`<a class="act primary" href="${playerHref(s)}">${t('practise')} →</a>`
    :`<button class="act ${noGpu&&!d.split?'':'primary'}" data-song="${esc(s.name)}" data-all=1 ${(d.split||canSplit)&&!busy?'':'disabled'}>${t('all')}</button>`;
   return `<tr><td data-h="${t('c_song')}"><div class=song>${esc(s.name)}</div><div class=detail>${s.source?esc(s.source):t('nosrc')}</div></td>
   <td data-h="${t('c_split')}">${chip(s.name,'split',d.split,s.split_stale)}<div class=detail>${s.stems.length?t('stems',{n:s.stems.length})+' · '+(s.model?esc(MODEL[lang][s.model]||s.model):t('model_unknown')):''}</div>${canSplit?btn('split',d.split?t('redo'):t('run'),true):''}</td>
   <td data-h="${t('c_an')}">${chip(s.name,'analyze',d.analyze,a&&!d.analyze)}<div class=detail>${a?`${esc(a.bpm)} BPM${a.beats_per_bar?' · '+esc(a.beats_per_bar)+'/4':''} · ${esc(lang==='zh'?a.key_zh:a.key_en)}${a.confidence!=null?' · '+t('conf',{p:Math.round(a.confidence*100)}):''}`:''}</div>${btn('analyze',a?t('redo'):t('run'),d.split)}</td>
-  <td data-h="${t('c_midi')}">${chip(s.name,'transcribe',d.transcribe,s.midi.length&&!d.transcribe)}<div class=detail>${midi}</div>${btn('transcribe',s.midi.length?t('redo'):t('run'),d.split)}</td>
+  <td data-h="${t('c_midi')}">${chip(s.name,midiStep,d.transcribe&&d.gp,s.midi.length&&!(d.transcribe&&d.gp))}<div class=detail>${midi}</div>${btn('transcribe',s.midi.length?t('redo'):t('run'),d.split)}</td>
   <td data-h="${t('c_player')}">${chip(s.name,'player',d.player,s.player==='stale')}<div class=detail></div>${s.player_url?`<a class="act" href="${playerHref(s)}">${t('open')} →</a>`:''}</td>
   <td>${last}</td></tr>`}).join('');
  rows.querySelectorAll('button[data-song]').forEach(b=>b.onclick=()=>run(b.dataset.song,b.dataset.step,!!b.dataset.all));

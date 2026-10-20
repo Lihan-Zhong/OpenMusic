@@ -18,3 +18,5 @@ pretty_midi==0.2.11.post0
 mido==1.3.3
 mir_eval==0.8.2
 resampy==0.4.3
+# Guitar Pro export (experiments/export_gp.py); LGPL-3.0
+PyGuitarPro==0.11

@@ -27,7 +27,7 @@
 1. **添加歌曲**：把 mp3 / wav / flac 拖进来，存到 `songs/`。
 2. **分轨**：选模型（见下面「分轨模型怎么选」），拆成 6 轨。每首歌会记下用的是哪个模型。
 3. **识别**：速度（拍子、小节）、调式、和弦。
-4. **转 MIDI**：每轨转成音符，可以导入 Guitar Pro / MuseScore。
+4. **转 MIDI**：每轨转成音符，可以导入 Guitar Pro / MuseScore；同时合成一份整首歌的 Guitar Pro 谱，点「下载 Guitar Pro」就能直接打开（见下面「Guitar Pro 谱」）。
 5. **练习**：点「打开」进入这首歌的练习播放器；播放器左上角可以回到工作台。
 
 「已整理的资料库」一栏是已经分好轨的歌（`outputs/mp3/`），直接从第 3 步开始。工作台只在本机运行（127.0.0.1），按钮背后就是下面「练习播放器」一节里的那几条命令。
@@ -40,7 +40,7 @@
 - **速度、调式、和弦**：自动识别 BPM、每一拍和小节线；调式给出把握程度和第二可能（通常是关系大小调）；时间轴上显示和弦，并提示当前和下一个和弦。
 - **变速不变调**：50%–150%，可以在波形上拖出一段单独设速度，比如难的段落放慢到 70%；也能变调（± 半音和音分）。
 - **练习工具**：A-B 循环、速度练习（每循环一遍自动加快一点）、预备拍、跟着歌曲拍子响的节拍器。
-- **扒谱**：每轨自动转成 MIDI，网页里有钢琴卷帘，显示音名和"正在响"的音。MIDI 带歌曲的速度变化，每一拍、每条小节线都和播放器里的一样，导入 Guitar Pro / MuseScore 时小节能对上。贝斯最准，吉他、钢琴是比较密的参考草稿。
+- **扒谱**：每轨自动转成 MIDI，网页里有钢琴卷帘，显示音名和"正在响"的音。MIDI 带歌曲的速度变化，每一拍、每条小节线都和播放器里的一样，导入 Guitar Pro / MuseScore 时小节能对上。贝斯最准，吉他、钢琴是比较密的参考草稿。卷帘下面还能下载整首歌的 Guitar Pro 谱。
 - **快捷键**：空格 播放/暂停，L 循环开关，`[` `]` 调速，← → 前后一小节，M 节拍器。
 
 最方便的是用上面的工作台。也可以在终端里一条条跑（以 RoFormer 分轨为例，`songs/` 里的每首歌都会处理）：
@@ -49,6 +49,7 @@
 .venv/bin/python experiments/evaluate_multi.py roformer_sw --full --no-score
 .venv/bin/python experiments/analyze.py outputs/roformer_sw_full
 .venv/bin/python experiments/transcribe.py outputs/roformer_sw_full
+.venv/bin/python experiments/export_gp.py outputs/roformer_sw_full
 .venv/bin/python experiments/build_player.py outputs/roformer_sw_full
 .venv/bin/python -m http.server 8765
 ```
@@ -56,9 +57,23 @@
 然后浏览器打开 http://localhost:8765/outputs/roformer_sw_full/player.html （英文版 player.en.html）。
 
 - 必须通过本地服务器打开（工作台或 `http.server`）：直接双击 html 文件，浏览器不允许网页处理音频。
-- 第一条命令是分轨，`--no-score` 表示跳过 MUSDB18 打分，所以不用先下载测试数据；第二条识别速度、调式、和弦；第三条转 MIDI；第四条生成播放页。
+- 第一条命令是分轨，`--no-score` 表示跳过 MUSDB18 打分，所以不用先下载测试数据；第二条识别速度、调式、和弦；第三条转 MIDI；第四条生成 Guitar Pro 谱；第五条生成播放页。
 - 识别结果是参考：噪音段、变速段里拍子容易跟丢，程序会按前后的速度把那里整理成整齐的小节，但位置不一定贴合音乐；调式和和弦的准确率大约七八成，和弦的扩展音（7、sus 等）只是提示。
 - 一首 6 分多钟的 6 轨歌，浏览器里大约占 1.5 GB 内存。
+
+## Guitar Pro 谱
+
+转完 MIDI 后，工作台会接着生成 `<歌名>/transcription/<歌名>.gp5`，不用再一轨一轨导入 MIDI、再手动整理。工作台的 MIDI 一栏和练习播放器（钢琴卷帘下面）都有「下载 Guitar Pro」。Guitar Pro 5 及以后的版本、TuxGuitar、MuseScore 都能打开。
+
+- **音轨**：吉他（6 弦标准调弦，六线谱 + 五线谱）、贝斯（4 弦，六线谱 + 五线谱）、人声旋律（只有五线谱）；钢琴、其他轨要有足够多的音才放进去；有鼓的扒谱（`transcription/drums.mid`）时再加一条鼓轨。
+- **小节**：和 MIDI、播放器用同一套拍子和小节线，拍号按每小节识别出的拍数写。歌曲开头不满一小节（弱起）时，它在 Guitar Pro 里是第 1 小节，在播放器里叫第 0 小节，所以后面的小节号比播放器大 1。Guitar Pro 同一时间只能记一个整数速度，谱上写的是每小节的速度，变化超过 3% 才标新速度，所以在 Guitar Pro 里播放只是接近原曲，不和录音严格同步。
+- **节奏**：音符对齐到十六分音符；明显是三连音的拍子对齐到八分三连音。同时开始的音合成一个和弦，持续到下一个音开始；很短的空隙会补上，谱面少些零碎的休止符。
+- **品位**：给每个和弦找出所有能按的指法（每根弦一个音，按弦的手指跨度吉他不超过 4 品、贝斯不超过 3 品），再用动态规划选出整首歌左手移动最少的一条路线，其次偏向低把位和常见的和弦形状。实在按不下的音，去掉最轻的。低音 D 很多时改用 Drop D 调弦。
+- **清理**：去掉力度不到这一轨较响音符（95 百分位）55% 的轻音；吉他、钢琴、其他轨还去掉泛音造成的"鬼音"：比同时响着的另一个音高八度、十二度、两个八度……而且更轻的音。
+- **和弦名、调、标题**：分析出的和弦名写在谱表上方；歌名、艺人、调、速度写在文件信息里。
+- 这仍然是草稿：贝斯最准，吉他比较密，要靠耳朵核对。Guitar Pro 5 格式没有规定文字编码，Guitar Pro 按电脑系统的编码读，所以中文歌名默认按本机编码写（Mac 是 UTF-8，中文 Windows 是 GBK）；要在另一台电脑上打开、标题显示成乱码时，用 `--encoding gbk` 或 `--encoding utf-8` 重新生成。文件名总是对的，音轨名和和弦名都是英文字母，不受影响。
+
+单独运行：`.venv/bin/python experiments/export_gp.py outputs/mp3 --song "歌名"`。
 
 ## 分轨模型怎么选
 
@@ -84,7 +99,7 @@
 | 质量评估 | 靠用户自己试听 | 内置打分（MUSDB18 测试片段上的 SDR）和对比试听页，见[实验记录](docs/experiments.md) |
 | 变速、变调 | 提供基于 Rubber Band 的处理工具，处理后输出文件 | 播放时实时调整，不同段落可以设不同速度 |
 | 吉他 | 可用 Demucs 6 轨分出一条吉他轨，没有区分多把吉他的模型 | 同样是一条吉他轨（Demucs 6 轨或 RoFormer-SW） |
-| 练琴、扒谱辅助 | 没有 | 每轨音量可放大、A-B 循环、节拍器；自动识别速度、调式、和弦；每轨转 MIDI 并显示钢琴卷帘 |
+| 练琴、扒谱辅助 | 没有 | 每轨音量可放大、A-B 循环、节拍器；自动识别速度、调式、和弦；每轨转 MIDI 并显示钢琴卷帘；整首歌的 Guitar Pro 谱 |
 | 输出 | 分轨文件 | 成品默认 MP3，对比用无损 FLAC |
 | 协议 | 代码 MIT（使用其模型需注明 UVR） | AGPL-3.0 |
 
@@ -107,8 +122,9 @@ experiments/
   build_page.py       生成对比试听页 compare.html（中文）和 compare.en.html（英文）
   analyze.py          识别速度（拍子、小节）、调式、和弦，写 analysis.json
   transcribe.py       每轨转 MIDI 和音符列表（transcription/）
+  export_gp.py        把各轨扒谱合成一个 Guitar Pro 谱（transcription/<歌名>.gp5）
   build_player.py     生成练习播放器 player.html（中文）和 player.en.html（英文）
-  tests/              分析、转谱、播放器的自动测试
+  tests/              分析、转谱、Guitar Pro 导出、播放器的自动测试
   vendor/             直接收录的第三方代码（各自带 LICENSE）：Signalsmith Stretch、wavesurfer.js、S-KEY
   methods/            3 轨方法：每个文件一个 separate(mix, sr)
   methods_multi/      多轨 AI 模型：demucs4、demucs6、roformer_sw
@@ -195,6 +211,7 @@ python -m venv .venv
 - [S-KEY](https://github.com/deezer/skey)（Deezer，ICASSP 2025，MIT）：调式识别模型，收录在 `experiments/vendor/skey/`；依赖 [nnAudio](https://github.com/KinWaiCheuk/nnAudio)（MIT）。
 - 调式模板数据取自 [Essentia](https://github.com/MTG/essentia) 的 key.cpp（AGPL-3.0）；和弦识别的模板 + Viterbi 做法参照 librosa 文档里的示例。
 - [Basic Pitch](https://github.com/spotify/basic-pitch)（Spotify，ICASSP 2022，Apache-2.0）：转 MIDI，用 [ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT）运行；MIDI 读写用 [pretty_midi](https://github.com/craffel/pretty-midi)（MIT）和 [mido](https://github.com/mido/mido)（MIT），评测用 [mir_eval](https://github.com/mir-evaluation/mir_eval)（MIT），重采样用 [resampy](https://github.com/bmcfee/resampy)（ISC）。
+- [PyGuitarPro](https://github.com/Perlence/PyGuitarPro)（Sviatoslav Abakumov，LGPL-3.0）：写入和读回 Guitar Pro 文件；它依赖 [attrs](https://github.com/python-attrs/attrs)（MIT）。
 - [Playwright](https://github.com/microsoft/playwright-python)（Apache-2.0）：只用于播放器的自动测试。
 
 **Python 库**

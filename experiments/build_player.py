@@ -7,8 +7,9 @@ an A-B loop with a speed trainer, pitch shift, a metronome on the detected beats
 analyze.py / transcribe.py have run, tempo, key, a chord lane and a piano roll of the transcribed notes.
 
 Reads <stems_root>/<song>/{vocals,drums,bass,guitar,piano,other}.{mp3,flac,wav} and, if present,
-<song>/analysis.json and <song>/transcription/<stem>.{notes.json,mid}. Re-run it after adding songs or
-running the analysis. The libraries are vendored in experiments/vendor/ and copied to <stems_root>/_player/:
+<song>/analysis.json, <song>/transcription/<stem>.{notes.json,mid} and <song>/transcription/<song>.gp5
+(export_gp.py). Re-run it after adding songs or running the analysis. The libraries are vendored in
+experiments/vendor/ and copied to <stems_root>/_player/:
 Signalsmith Stretch 1.3.2 (MIT) does the time-stretch and pitch shift, wavesurfer.js 7.12.12 (BSD-3-Clause)
 draws the waveform, the regions and the time ruler. Serve the folder over http and open player.html
 (browsers only run the audio worklet from http://, not from file://):
@@ -74,6 +75,8 @@ TEXT = {
         "notes_of": "音符：", "notes_none": "（无）", "span": "视野", "now_notes": "正在响：",
         "mixer": "分轨音量", "master": "总音量", "reset": "全部复位", "mute": "静音", "solo": "独奏",
         "midi": "MIDI", "midi_title": "下载这一轨的扒谱 MIDI（可导入 Guitar Pro / MuseScore）",
+        "gp": "Guitar Pro",
+        "gp_title": "下载整首歌的 Guitar Pro 谱：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名",
         "limiting": "限幅中 {db} dB", "limiter_idle": "限幅器待命",
         "limiter_title": "调大音量后总输出也不会爆音：超过 −2 dBFS 的部分会被压下来",
         "bar_beat": "第 {bar} 小节 第 {beat} 拍", "beat_only": "第 {beat} 拍",
@@ -114,6 +117,9 @@ TEXT = {
         "notes_of": "Notes:", "notes_none": "(none)", "span": "View", "now_notes": "Sounding: ",
         "mixer": "Stem volumes", "master": "Master", "reset": "Reset all", "mute": "Mute", "solo": "Solo",
         "midi": "MIDI", "midi_title": "Download this stem's transcription as MIDI (opens in Guitar Pro / MuseScore)",
+        "gp": "Guitar Pro",
+        "gp_title": "Download the whole song as one Guitar Pro file: every stem a track, tab for guitar and bass, "
+                    "chord names above",
         "limiting": "Limiting {db} dB", "limiter_idle": "Limiter idle",
         "limiter_title": "Boosting never clips the output: anything above −2 dBFS is pulled down",
         "bar_beat": "Bar {bar}, beat {beat}", "beat_only": "Beat {beat}",
@@ -152,6 +158,7 @@ def find_songs(root):
                       if found(f"transcription/{s['name']}.notes.json")},
             "midi": {s["name"]: quote(f"transcription/{s['name']}.mid") for s in stems
                      if found(f"transcription/{s['name']}.mid")},
+            "gp": quote(f"transcription/{folder.name}.gp5") if found(f"transcription/{folder.name}.gp5") else None,
         })
     return songs
 
@@ -206,6 +213,7 @@ def main():
     songs = build(args.stems_root)
     for s in songs:
         extras = (["analysis.json"] if s["analysis"] else []) + ([f"notes: {', '.join(s['notes'])}"] if s["notes"] else [])
+        extras += ["Guitar Pro"] if s["gp"] else []
         print(f"{s['name']}: {len(s['stems'])} stems" + (f" ({'; '.join(extras)})" if extras else ""))
     print(f"wrote {args.stems_root / PAGES['zh']} and {PAGES['en']}; open {page_url(args.stems_root, PAGES['zh'])}")
 
@@ -309,8 +317,16 @@ code { background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
 </header>
 <main>
 <script>
-// Served by the workbench (experiments/app.py)? Then offer the way back to it; a plain http.server has no /api.
-fetch('/api/state').then(r => { if (r.ok) document.getElementById('home').hidden = false; }).catch(() => {});
+// Opened from the workbench (experiments/app.py adds ?from=workbench)? Then offer the way back to it. The flag is
+// kept for this tab, since the 中文 / English switch drops the query string; no request needed.
+(() => {
+  let from = new URLSearchParams(location.search).get('from') === 'workbench';
+  try {
+    if (from) sessionStorage.setItem('om-from-workbench', '1');
+    from = from || sessionStorage.getItem('om-from-workbench') === '1';
+  } catch (e) {}
+  document.getElementById('home').hidden = !from;
+})();
 </script>
 <div id="filewarn" class="panel" hidden><p>__FILEWARN__</p></div>
 <div id="app">
@@ -338,6 +354,7 @@ fetch('/api/state').then(r => { if (r.ok) document.getElementById('home').hidden
       <label id="roll-box"><span id="l-notes"></span> <select id="roll"></select></label>
       <label><span id="l-span"></span> <input type="range" id="span" min="3" max="30" step="1" value="10"></label>
       <span id="roll-midi"></span>
+      <span id="roll-gp"></span>
     </div>
   </section>
   <section class="panel transport" id="transport" hidden>
@@ -1102,6 +1119,11 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
   if (!rollStems.some(s => s.name === rollStem)) rollStem = rollStems[0]?.name ?? '';
   rollSel.value = rollStem;
   $('roll-box').hidden = !rollStems.length;
+  $('roll-gp').replaceChildren();
+  if (song.gp) {
+    const a = document.createElement('a'); a.href = song.base + song.gp; a.download = song.name + '.gp5';
+    a.textContent = '⬇ ' + T.gp; a.title = T.gp_title; $('roll-gp').append(a);
+  }
   async function loadNotes() {
     rollStem = rollSel.value; save();
     $('roll-midi').replaceChildren();

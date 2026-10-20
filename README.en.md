@@ -31,7 +31,8 @@ runs at a time so the computer stays responsive:
 2. **Split**: choose a model (see "Choosing a separation model" below) to get 6 stems. Each song records which
    model split it.
 3. **Analyze**: tempo (beats, bars), key, chords.
-4. **MIDI**: every stem becomes notes you can import into Guitar Pro / MuseScore.
+4. **MIDI**: every stem becomes notes you can import into Guitar Pro / MuseScore, plus one Guitar Pro file of the
+   whole song that opens directly ("Download Guitar Pro"; see "Guitar Pro file" below).
 5. **Practise**: "Open" goes to the song's practice player; the top left of the player leads back to the workbench.
 
 The "Collected library" tab holds songs that are already split (`outputs/mp3/`) and starts at step 3. The
@@ -53,7 +54,7 @@ Once a song is split into stems, practise with it in a local web page:
 - **Transcription**: every stem is turned into MIDI; the page shows a piano roll with note names and the notes
   sounding now. The MIDI carries the song's tempo changes and has exactly the player's beats and bar lines, so
   bars line up when imported into Guitar Pro or MuseScore. Bass is the most accurate; guitar and piano are
-  dense rough drafts.
+  dense rough drafts. Below the piano roll there is also the whole song as a Guitar Pro file.
 - **Shortcuts**: space play/pause, L loop on/off, `[` `]` speed, ← → one bar back/forward, M metronome.
 
 The workbench above is the easiest way. You can also run the steps one by one in a terminal (with RoFormer
@@ -63,6 +64,7 @@ stems; every song in `songs/` is processed):
 .venv/bin/python experiments/evaluate_multi.py roformer_sw --full --no-score
 .venv/bin/python experiments/analyze.py outputs/roformer_sw_full
 .venv/bin/python experiments/transcribe.py outputs/roformer_sw_full
+.venv/bin/python experiments/export_gp.py outputs/roformer_sw_full
 .venv/bin/python experiments/build_player.py outputs/roformer_sw_full
 .venv/bin/python -m http.server 8765
 ```
@@ -72,11 +74,46 @@ Then open http://localhost:8765/outputs/roformer_sw_full/player.html (English: p
 - It must be served over a local server (the workbench or `http.server`): opened by double-clicking the HTML
   file, the browser won't let the page process audio.
 - The first command splits the songs (`--no-score` skips MUSDB18 scoring, so no test data is needed); the second
-  detects tempo, key and chords; the third makes MIDI; the fourth builds the pages.
+  detects tempo, key and chords; the third makes MIDI; the fourth writes the Guitar Pro file; the fifth builds
+  the pages.
 - Detection is a guide: in noise or rubato passages the beat tracker loses the beat; the grid there is evened out
   into steady bars at the tempo around it, which may not sit exactly on the music. Key and chords are right
   roughly 70–80% of the time, and chord extensions (7, sus, ...) are hints.
 - A 6-minute song with 6 stems uses about 1.5 GB of browser memory.
+
+## Guitar Pro file
+
+After the MIDI step the workbench writes `<song>/transcription/<song>.gp5`, so there is no need to import the MIDI
+files one by one and tidy them up. "Download Guitar Pro" is in the workbench's MIDI column and in the practice
+player (below the piano roll). It opens in Guitar Pro 5 and later, TuxGuitar and MuseScore.
+
+- **Tracks**: guitar (6 strings, standard tuning, tab + notation), bass (4 strings, tab + notation), the vocal
+  melody (notation only); piano and other only when they have enough notes; drums when there is a drum
+  transcription (`transcription/drums.mid`).
+- **Bars**: the same beats and bar lines as the MIDI and the player, with each bar's time signature from its
+  detected number of beats. When the song starts with less than a full bar (a pickup), that bar is bar 1 in
+  Guitar Pro and bar 0 in the player, so later bar numbers are one higher than in the player. Guitar Pro keeps
+  one whole-number tempo at a time: the score follows the per-bar tempo and marks a new tempo when it moves by
+  more than 3 %, so playback inside Guitar Pro is close to the recording, not locked to it.
+- **Rhythm**: notes go on a grid of 16ths, or of 8th-note triplets in beats that are clearly triplets. Notes that
+  start together form a chord, held until the next note starts; short gaps are closed, so there are fewer stray
+  rests.
+- **Frets**: every playable fingering of each chord is listed (one note per string, the fretting hand spanning at
+  most 4 frets on guitar and 3 on bass), and dynamic programming picks the path with the least hand movement over
+  the whole song, then low positions and the usual chord shapes. Notes that cannot be played together lose the
+  softest first. Many low Ds switch the tuning to drop D.
+- **Clean-up**: notes softer than 55 % of the track's loud notes (95th percentile) are dropped; on guitar, piano
+  and other, so are overtone "ghosts": softer notes an octave, a twelfth, two octaves, ... above a note sounding
+  at the same time.
+- **Chords, key, title**: the detected chord names sit above the staff; title, artist, key and tempo are in the
+  file's score information.
+- It is still a draft: bass is the most accurate, guitar is dense; check it by ear. The Guitar Pro 5 format has no
+  fixed text encoding (Guitar Pro reads it in the computer's own), so a Chinese title is written in this
+  computer's encoding (UTF-8 on a Mac, GBK on Chinese Windows). If the title shows up garbled on another computer,
+  write it again with `--encoding gbk` or `--encoding utf-8`. The file name is always right, and track and chord
+  names are plain ASCII.
+
+On its own: `.venv/bin/python experiments/export_gp.py outputs/mp3 --song "<song>"`.
 
 ## Choosing a separation model
 
@@ -104,7 +141,7 @@ pages) are in [docs/experiments.en.md](docs/experiments.en.md).
 | Quality evaluation | Listening by the user | Built-in scoring (SDR on MUSDB18 test clips) and comparison listening pages, see the [experiment notes](docs/experiments.en.md) |
 | Speed / pitch change | Tools based on Rubber Band that process and write new files | Adjusted in real time during playback, with different speeds for different passages |
 | Guitar | One guitar stem via Demucs 6-stem; no model that splits several guitars | Likewise one guitar stem (Demucs 6-stem or RoFormer-SW) |
-| Practice and transcription aids | None | Per-stem boost, A-B loop, metronome; detected tempo, key and chords; per-stem MIDI with a piano roll |
+| Practice and transcription aids | None | Per-stem boost, A-B loop, metronome; detected tempo, key and chords; per-stem MIDI with a piano roll; the whole song as a Guitar Pro file |
 | Output | Stem files | MP3 by default for finished stems, lossless FLAC for comparison |
 | Licence | MIT code (credit UVR when using its models) | AGPL-3.0 |
 
@@ -127,8 +164,9 @@ experiments/
   build_page.py       build the listening pages compare.html (Chinese) and compare.en.html (English)
   analyze.py          detect tempo (beats, bars), key and chords; writes analysis.json
   transcribe.py       turn each stem into MIDI and a note list (transcription/)
+  export_gp.py        put the stems' transcriptions into one Guitar Pro file (transcription/<song>.gp5)
   build_player.py     build the practice player player.html (Chinese) and player.en.html (English)
-  tests/              automated tests for analysis, transcription and the player
+  tests/              automated tests for analysis, transcription, the Guitar Pro export and the player
   vendor/             third-party code included as is, each with its LICENSE: Signalsmith Stretch, wavesurfer.js, S-KEY
   methods/            3-stem methods, one separate(mix, sr) per file
   methods_multi/      multi-stem AI models: demucs4, demucs6, roformer_sw
@@ -228,6 +266,7 @@ This project builds on many open-source projects and research results. Thank you
 - [S-KEY](https://github.com/deezer/skey) (Deezer, ICASSP 2025, MIT): key detection model, included in `experiments/vendor/skey/`; needs [nnAudio](https://github.com/KinWaiCheuk/nnAudio) (MIT).
 - Key profile tables from [Essentia](https://github.com/MTG/essentia)'s key.cpp (AGPL-3.0); the template + Viterbi chord recipe follows the example in librosa's documentation.
 - [Basic Pitch](https://github.com/spotify/basic-pitch) (Spotify, ICASSP 2022, Apache-2.0): MIDI transcription, run with [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT); MIDI I/O with [pretty_midi](https://github.com/craffel/pretty-midi) (MIT) and [mido](https://github.com/mido/mido) (MIT), evaluation with [mir_eval](https://github.com/mir-evaluation/mir_eval) (MIT), resampling with [resampy](https://github.com/bmcfee/resampy) (ISC).
+- [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) (Sviatoslav Abakumov, LGPL-3.0): writes and reads back the Guitar Pro file; it depends on [attrs](https://github.com/python-attrs/attrs) (MIT).
 - [Playwright](https://github.com/microsoft/playwright-python) (Apache-2.0): only for the player's automated tests.
 
 **Python libraries**
