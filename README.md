@@ -2,12 +2,35 @@
 
 **中文** | [English](README.en.md)
 
-> 本项目的默认语言是中文（对比试听页等界面也都是中文），也可以选择阅读[英文版 README](README.en.md)。
+> 本项目默认使用中文，同时做了英文适配版本：英文说明见 [README.en.md](README.en.md)，工作台和练习播放器网页的右上角也可以切换「中文 / English」。
+>
+> This project uses Chinese by default and also comes in English: see [README.en.md](README.en.md) for the English README, and switch the workbench and practice-player pages with "中文 / English" at the top right.
 
-一个给乐手用的开源"分轨练习"小工具的实验仓库：把一首歌拆成人声 / 鼓 / 贝斯 / 吉他 / 其他，
-再在本地网页里静音、独奏、对比着听。目标是 Python 跑在自己电脑上的小软件，不做手机版。
+一个给乐手用的开源练琴、扒谱小工具：把一首歌拆成人声 / 鼓 / 贝斯 / 吉他 / 钢琴 / 其他 6 轨，再在本地网页里调音量、变速、循环、看和弦、转 MIDI。Python 跑在自己电脑上，不做手机版。
 
-现在已经有一个能用的**练习播放器**（见下一节）。仓库里也保留了分轨方法的对比实验：传统信号处理方法和 AI 模型（Demucs、BS-RoFormer）各自分得怎么样。
+## 快速开始
+
+1. 按下面「安装」一节装好环境。
+2. 打开工作台：
+
+   ```bash
+   .venv/bin/python experiments/app.py
+   ```
+
+   浏览器会自动打开 http://localhost:8780 。
+3. 把一首 mp3 拖进去，选一个分轨模型，点「一键处理」，处理完点「打开」进入练习播放器。
+
+## 工作台
+
+工作台把整条流程串成一个网页，每一步都可以单独运行或重做，同一时间只跑一个任务，免得电脑卡：
+
+1. **添加歌曲**：把 mp3 / wav / flac 拖进来，存到 `songs/`。
+2. **分轨**：选模型（见下面「分轨模型怎么选」），拆成 6 轨。每首歌会记下用的是哪个模型。
+3. **识别**：速度（拍子、小节）、调式、和弦。
+4. **转 MIDI**：每轨转成音符，可以导入 Guitar Pro / MuseScore。
+5. **练习**：点「打开」进入这首歌的练习播放器；播放器左上角可以回到工作台。
+
+「已整理的资料库」一栏是已经分好轨的歌（`outputs/mp3/`），直接从第 3 步开始。工作台只在本机运行（127.0.0.1），按钮背后就是下面「练习播放器」一节里的那几条命令。
 
 ## 练习播放器（练琴、扒谱用）
 
@@ -20,7 +43,7 @@
 - **扒谱**：每轨自动转成 MIDI，网页里有钢琴卷帘，显示音名和"正在响"的音。MIDI 带歌曲的速度变化，每一拍、每条小节线都和播放器里的一样，导入 Guitar Pro / MuseScore 时小节能对上。贝斯最准，吉他、钢琴是比较密的参考草稿。
 - **快捷键**：空格 播放/暂停，L 循环开关，`[` `]` 调速，← → 前后一小节，M 节拍器。
 
-用法（以 RoFormer 分轨为例，`songs/` 里的每首歌都会处理）：
+最方便的是用上面的工作台。也可以在终端里一条条跑（以 RoFormer 分轨为例，`songs/` 里的每首歌都会处理）：
 
 ```bash
 .venv/bin/python experiments/evaluate_multi.py roformer_sw --full --no-score
@@ -32,39 +55,21 @@
 
 然后浏览器打开 http://localhost:8765/outputs/roformer_sw_full/player.html （英文版 player.en.html）。
 
-- 必须这样用本地服务器打开：直接双击 html 文件，浏览器不允许网页处理音频。
+- 必须通过本地服务器打开（工作台或 `http.server`）：直接双击 html 文件，浏览器不允许网页处理音频。
 - 第一条命令是分轨，`--no-score` 表示跳过 MUSDB18 打分，所以不用先下载测试数据；第二条识别速度、调式、和弦；第三条转 MIDI；第四条生成播放页。
 - 识别结果是参考：噪音段、变速段里拍子容易跟丢，程序会按前后的速度把那里整理成整齐的小节，但位置不一定贴合音乐；调式和和弦的准确率大约七八成，和弦的扩展音（7、sus 等）只是提示。
 - 一首 6 分多钟的 6 轨歌，浏览器里大约占 1.5 GB 内存。
 
-## 当前结果
+## 分轨模型怎么选
 
-分数是 MUSDB18 公开样例里 50 段 7 秒测试片段的中位数 SDR（dB，越高越好；带真实分轨答案）。
+工作台里有两个分轨模型可选：
 
-**3 轨（人声 / 鼓 / 其他含贝斯）**
+| 模型 | 分得多干净（MUSDB18 测试片段 SDR，越高越好） | 速度 | 建议 |
+|---|---|---|---|
+| BS-RoFormer-SW 6 轨 | 平均 10.3 dB（人声 12.0、鼓 11.9、贝斯 9.5） | RTX 4070 Ti 上一首约 20 秒；Mac 上很慢，还要 6 GB 以上内存 | 有 NVIDIA 显卡时首选 |
+| Demucs 6 轨 | 平均 7.8 dB（人声 8.6、鼓 9.5、贝斯 8.3） | Mac 上一首约 1 分钟 | 任何电脑都能跑 |
 
-| 方法 | 类型 | 人声 | 鼓 | 其他 | 平均 |
-|---|---|---|---|---|---|
-| 理论上限：理想频谱遮罩（偷看答案） | 参考 | 10.67 | 9.31 | 10.08 | 10.02 |
-| Demucs htdemucs | AI | 8.83 | 9.61 | 9.23 | 9.23 |
-| 多专家融合（5 种方法按频段加权投票，用练习片段学权重） | 信号处理 | 5.32 | 4.30 | 4.79 | 4.80 |
-| HPSS 两级中值滤波 | 信号处理 | 4.51 | 4.01 | 4.63 | 4.38 |
-| NMF 矩阵分解（用练习片段学模板） | 信号处理 | 4.18 | 4.16 | 3.88 | 4.07 |
-| REPET 重复结构 | 信号处理 | 4.26 | 2.72 | 3.26 | 3.41 |
-| 音高追踪 | 信号处理 | 4.10 | 2.44 | 3.65 | 3.40 |
-| 纯频率切分（用练习片段学 EQ） | 信号处理 | 3.50 | 2.23 | 2.31 | 2.68 |
-| 立体声位置（用练习片段学增益） | 信号处理 | 3.48 | 2.17 | 2.20 | 2.62 |
-| 什么都不做（原曲当答案） | 底线 | -4.50 | -4.13 | -1.24 | -3.29 |
-
-**4 轨打分（人声 / 鼓 / 贝斯 / 其他\*）**
-
-| 模型 | 人声 | 鼓 | 贝斯 | 其他\* | 平均 |
-|---|---|---|---|---|---|
-| BS-RoFormer-SW（6 轨） | 11.97 | 11.86 | 9.45 | 8.00 | 10.32 |
-| Demucs htdemucs（4 轨） | 8.83 | 9.61 | 9.14 | 5.27 | 8.21 |
-| Demucs htdemucs_6s（6 轨） | 8.64 | 9.49 | 8.31 | 4.82 | 7.82 |
-
-\* MUSDB18 没有单独的吉他、钢琴答案，6 轨模型的 吉他 + 钢琴 + 其他 合起来按"其他"打分；吉他好坏只能靠听。
+吉他、钢琴没有公开的标准答案，只能靠耳朵比较。完整的实验记录（包括 6 种传统信号处理方法为什么不行、对比试听页）见 [docs/experiments.md](docs/experiments.md)。
 
 ## 与 Ultimate Vocal Remover（UVR）的比较
 
@@ -73,10 +78,10 @@
 | | UVR | OpenMusic |
 |---|---|---|
 | 定位 | 分轨工作站：用多种模型产出高质量的分轨文件，供混音、翻唱、制作使用 | 练习工具：分完直接在本地网页里静音、独奏、对比着听，供乐手练琴使用 |
-| 形式 | 桌面应用，提供 Windows / macOS / Linux 安装包 | Python 脚本 + 本地网页 |
-| 模型 | 多种架构（VR、MDX-Net、MDX23C、Demucs 等），除 Demucs 外大多由 UVR 开发者训练 | Demucs、BS-RoFormer-SW，另有 6 种传统信号处理方法用作对比 |
+| 形式 | 桌面应用，提供 Windows / macOS / Linux 安装包 | Python + 本地网页（工作台 + 练习播放器） |
+| 模型 | 多种架构（VR、MDX-Net、MDX23C、Demucs 等），除 Demucs 外大多由 UVR 开发者训练 | Demucs 6 轨、BS-RoFormer-SW 6 轨（另有传统信号处理方法的对比实验） |
 | 多模型合并 | 有（Ensemble） | 传统方法有融合（`combo`），AI 模型暂时没有 |
-| 质量评估 | 靠用户自己试听 | 内置打分（MUSDB18 测试片段上的 SDR）和中英文对比试听页 |
+| 质量评估 | 靠用户自己试听 | 内置打分（MUSDB18 测试片段上的 SDR）和对比试听页，见[实验记录](docs/experiments.md) |
 | 变速、变调 | 提供基于 Rubber Band 的处理工具，处理后输出文件 | 播放时实时调整，不同段落可以设不同速度 |
 | 吉他 | 可用 Demucs 6 轨分出一条吉他轨，没有区分多把吉他的模型 | 同样是一条吉他轨（Demucs 6 轨或 RoFormer-SW） |
 | 练琴、扒谱辅助 | 没有 | 每轨音量可放大、A-B 循环、节拍器；自动识别速度、调式、和弦；每轨转 MIDI 并显示钢琴卷帘 |
@@ -89,6 +94,7 @@
 
 ```
 experiments/
+  app.py              工作台：一个本地网页，一步步把歌处理到练习播放器
   common.py           路径、读写音频、SDR 打分
   prepare_data.py     把 MUSDB18 样例解成 3 轨标准答案（data/gt/）
   prepare_bass.py     补上贝斯标准答案
@@ -107,15 +113,14 @@ experiments/
   methods/            3 轨方法：每个文件一个 separate(mix, sr)
   methods_multi/      多轨 AI 模型：demucs4、demucs6、roformer_sw
 results/              每个方法的分数（JSON）和实验说明 method_info.json
+docs/                 实验记录：分轨方法对比和复现步骤
 ```
 
 不进仓库的（见 `.gitignore`）：`.venv/`、`.cache/`（模型权重）、`data/`（数据集）、`songs/`（你的歌）、`outputs/`（分好的音轨）。
 
-## 在新电脑上跑起来
+## 安装
 
 需要 Python 3.10 以上（测试用的是 3.12）。
-
-**1. 建环境**
 
 macOS / Linux：
 ```bash
@@ -139,41 +144,15 @@ python -m venv .venv
 
 下面的命令都以 macOS 写法为例；Windows 把 `.venv/bin/python` 换成 `.venv\Scripts\python`。
 
-**2. 准备打分数据（约 150 MB 下载，解开后约 0.5 GB）**
-
-```bash
-curl -L -o data/MUSDB18-7-STEMS.zip https://github.com/sigsep/sigsep-mus-db/releases/download/v0.4.0/MUSDB18-7-STEMS.zip
-```
-解压到 `data/musdb7/`（里面应有 `train/`、`test/` 两个文件夹），然后：
-```bash
-.venv/bin/python experiments/prepare_data.py
-.venv/bin/python experiments/prepare_bass.py
-```
-
-**3. 放歌、跑模型**
-
-把 mp3 放进 `songs/`，然后：
-```bash
-.venv/bin/python experiments/make_excerpts.py
-.venv/bin/python experiments/evaluate_multi.py roformer_sw --split test --song --full
-.venv/bin/python experiments/build_page.py
-```
 模型权重第一次运行时会自动下载到 `.cache/`（Demucs 约 80 MB，RoFormer-SW 约 700 MB）。
 
-**输出格式：**
+**分轨的文件格式：**
 - 整首歌的分轨（`--full`）是拿来练习的成品，默认存成 **MP3**（VBR 约 V2，大小约为无损的 1/3，听感无差别）。加 `--lossless` 存成无损 FLAC。
 - 60 秒对比片段（`--song`）是用来对比方法的，**一律是无损 FLAC**，因为压缩痕迹会盖住方法之间的差别。
 - 已有的无损分轨想转 MP3：`.venv/bin/python experiments/export_mp3.py <无损分轨文件夹> <输出文件夹>`。
 - 所有格式的分轨长度都精确到采样点，几轨一起播放时保持同步。
 
-**4. 试听**
-
-```bash
-.venv/bin/python -m http.server 8765
-```
-浏览器打开 http://localhost:8765/compare.html （英文版：compare.en.html）。
-如果分轨结果是从另一台电脑拷过来的文件夹（里面有 `data/song_excerpts/` 和 `outputs/`，WAV 或 FLAC 都行），
-可以用 `.venv/bin/python experiments/build_page.py --root <那个文件夹>` 直接在里面生成两个试听页。
+分轨方法的对比实验（要下载 MUSDB18 测试数据）怎么复现，见 [docs/experiments.md](docs/experiments.md)。
 
 ## 许可和注意事项
 

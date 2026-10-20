@@ -12,9 +12,15 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   chords = template + Viterbi on stems) -> `transcribe.py` (Basic Pitch ONNX -> MIDI with tempo map + notes.json)
   -> `build_player.py` (Signalsmith Stretch engine, wavesurfer.js UI; gain to +12 dB with limiter, speed regions,
   A-B loop + speed trainer, pitch shift, metronome on detected beats, chord lane, piano roll). See README.
-- Split new songs without MUSDB18: `evaluate_multi.py roformer_sw --full --no-score` (heavy: run RoFormer on the
-  Windows GPU, not on the 16 GB Mac). Library on the Mac: outputs/mp3/<song>/ (3 songs).
-- Separation experiments: classical DSP best `combo` 4.8 dB; Demucs 9.2 dB (3 stems); BS-RoFormer-SW 10.3 dB.
+- Workbench `experiments/app.py` (stdlib only, http://localhost:8780) is the main entry: upload to songs/ ->
+  split (Demucs 6 or RoFormer via `evaluate_multi.py <model> --full --no-score --only=<song>`) -> analyze ->
+  transcribe -> build_player, one job at a time; the player links back to it. Hardened: 127.0.0.1, Host check,
+  X-OpenMusic header on POST, no framing, static files only under outputs/, song-name validator.
+- Each split song folder has stems.json (model, format, ...; written after the last stem = split finished);
+  export_mp3.py carries it along. Libraries: outputs/demucs6_full, outputs/roformer_sw_full, outputs/mp3 (hand-collected).
+- Heavy: run RoFormer on the Windows GPU, not on the 16 GB Mac.
+- Separation experiments (docs/experiments.md): classical DSP best `combo` 4.8 dB; Demucs 9.2 dB (3 stems);
+  BS-RoFormer-SW 10.3 dB. The README only keeps a short model guide.
 - Known gaps: chord extensions are hints; Beat This! locks to 2x/4x in noise passages (Carsick 140-306 s, no drums):
   analyze.py evens the grid out (regular_beats, bar_lines; transcribe.py uses it as-is), but there it is a guess;
   guitar MIDI is a dense draft, fast low bass is missed; nobody has listened to slow-speed quality yet.

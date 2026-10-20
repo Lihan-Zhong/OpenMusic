@@ -2,15 +2,41 @@
 
 [中文](README.md) | **English**
 
-> This project's default language is Chinese (the listening page and other UI are in Chinese).
-> This English README is provided as an alternative; the [Chinese README](README.md) is the main one.
+> 本项目默认使用中文，同时做了英文适配版本：英文说明见 [README.en.md](README.en.md)，工作台和练习播放器网页的右上角也可以切换「中文 / English」。
+>
+> This project uses Chinese by default and also comes in English: see [README.en.md](README.en.md) for the English README, and switch the workbench and practice-player pages with "中文 / English" at the top right.
 
-Experiments toward a small open-source practice tool for musicians: split a song into vocals / drums /
-bass / guitar / other, then mute, solo and compare the stems in a local web page. The goal is a small
-Python program that runs on your own computer. There is no mobile version.
+An open-source tool for musicians to practise and transcribe songs: split a song into 6 stems (vocals / drums /
+bass / guitar / piano / other), then adjust volumes, slow down, loop, follow the chords and get MIDI in a local
+web page. It is Python that runs on your own computer; there is no mobile version.
 
-There is now a working **practice player** (next section). The repo also keeps the separation experiments,
-which compare classical signal-processing methods with AI models (Demucs, BS-RoFormer).
+## Quick start
+
+1. Set up the environment as in "Installation" below.
+2. Open the workbench:
+
+   ```bash
+   .venv/bin/python experiments/app.py
+   ```
+
+   Your browser opens http://localhost:8780 .
+3. Drop an mp3 in, choose a separation model, click "Process all", then "Open" to go to the practice player.
+
+## Workbench
+
+The workbench puts the whole flow in one web page. Each step can be run or redone on its own, and only one job
+runs at a time so the computer stays responsive:
+
+1. **Add a song**: drop an mp3 / wav / flac in; it is saved to `songs/`.
+2. **Split**: choose a model (see "Choosing a separation model" below) to get 6 stems. Each song records which
+   model split it.
+3. **Analyze**: tempo (beats, bars), key, chords.
+4. **MIDI**: every stem becomes notes you can import into Guitar Pro / MuseScore.
+5. **Practise**: "Open" goes to the song's practice player; the top left of the player leads back to the workbench.
+
+The "Collected library" tab holds songs that are already split (`outputs/mp3/`) and starts at step 3. The
+workbench runs only on this computer (127.0.0.1); its buttons run the same commands as in the "Practice player"
+section.
 
 ## Practice player (for practising and transcribing)
 
@@ -30,7 +56,8 @@ Once a song is split into stems, practise with it in a local web page:
   dense rough drafts.
 - **Shortcuts**: space play/pause, L loop on/off, `[` `]` speed, ← → one bar back/forward, M metronome.
 
-Usage (with RoFormer stems; every song in `songs/` is processed):
+The workbench above is the easiest way. You can also run the steps one by one in a terminal (with RoFormer
+stems; every song in `songs/` is processed):
 
 ```bash
 .venv/bin/python experiments/evaluate_multi.py roformer_sw --full --no-score
@@ -42,7 +69,8 @@ Usage (with RoFormer stems; every song in `songs/` is processed):
 
 Then open http://localhost:8765/outputs/roformer_sw_full/player.html (English: player.en.html).
 
-- It must be served like this: opened by double-clicking the HTML file, the browser won't let the page process audio.
+- It must be served over a local server (the workbench or `http.server`): opened by double-clicking the HTML
+  file, the browser won't let the page process audio.
 - The first command splits the songs (`--no-score` skips MUSDB18 scoring, so no test data is needed); the second
   detects tempo, key and chords; the third makes MIDI; the fourth builds the pages.
 - Detection is a guide: in noise or rubato passages the beat tracker loses the beat; the grid there is evened out
@@ -50,36 +78,18 @@ Then open http://localhost:8765/outputs/roformer_sw_full/player.html (English: p
   roughly 70–80% of the time, and chord extensions (7, sus, ...) are hints.
 - A 6-minute song with 6 stems uses about 1.5 GB of browser memory.
 
-## Current results
+## Choosing a separation model
 
-Scores are median SDR (dB, higher is better) over 50 seven-second test clips from the public MUSDB18
-sample, which comes with the true separated stems.
+The workbench offers two separation models:
 
-**3 stems (vocals / drums / other, bass included in other)**
+| Model | How cleanly it separates (SDR on MUSDB18 test clips, higher is better) | Speed | Advice |
+|---|---|---|---|
+| BS-RoFormer-SW 6-stem | 10.3 dB on average (vocals 12.0, drums 11.9, bass 9.5) | about 20 s per song on an RTX 4070 Ti; slow on a Mac and needs over 6 GB of memory | first choice with an NVIDIA GPU |
+| Demucs 6-stem | 7.8 dB on average (vocals 8.6, drums 9.5, bass 8.3) | about 1 min per song on a Mac | runs on any computer |
 
-| Method | Type | Vocals | Drums | Other | Mean |
-|---|---|---|---|---|---|
-| Ceiling: ideal ratio mask (reads the true stems) | Reference | 10.67 | 9.31 | 10.08 | 10.02 |
-| Demucs htdemucs | AI | 8.83 | 9.61 | 9.23 | 9.23 |
-| Multi-expert fusion (5 methods, per-band weights learned on the train clips) | DSP | 5.32 | 4.30 | 4.79 | 4.80 |
-| HPSS, two-stage median filtering | DSP | 4.51 | 4.01 | 4.63 | 4.38 |
-| NMF (templates learned on the train clips) | DSP | 4.18 | 4.16 | 3.88 | 4.07 |
-| REPET, repetition-based | DSP | 4.26 | 2.72 | 3.26 | 3.41 |
-| Pitch / melody tracking | DSP | 4.10 | 2.44 | 3.65 | 3.40 |
-| Frequency bands only (EQ learned on the train clips) | DSP | 3.50 | 2.23 | 2.31 | 2.68 |
-| Stereo position (gains learned on the train clips) | DSP | 3.48 | 2.17 | 2.20 | 2.62 |
-| Do nothing (the mixture as every stem) | Floor | -4.50 | -4.13 | -1.24 | -3.29 |
-
-**4-stem scores (vocals / drums / bass / other\*)**
-
-| Model | Vocals | Drums | Bass | Other\* | Mean |
-|---|---|---|---|---|---|
-| BS-RoFormer-SW (6 stems) | 11.97 | 11.86 | 9.45 | 8.00 | 10.32 |
-| Demucs htdemucs (4 stems) | 8.83 | 9.61 | 9.14 | 5.27 | 8.21 |
-| Demucs htdemucs_6s (6 stems) | 8.64 | 9.49 | 8.31 | 4.82 | 7.82 |
-
-\* MUSDB18 has no separate guitar or piano stems, so for the 6-stem models guitar + piano + other are
-scored together as "other". Guitar quality can only be judged by ear.
+There is no public ground truth for guitar and piano, so those can only be compared by ear. The full experiment
+notes (including why the six classical signal-processing methods were not enough, and the comparison listening
+pages) are in [docs/experiments.en.md](docs/experiments.en.md).
 
 ## Comparison with Ultimate Vocal Remover (UVR)
 
@@ -88,10 +98,10 @@ scored together as "other". Guitar quality can only be judged by ear.
 | | UVR | OpenMusic |
 |---|---|---|
 | Purpose | A separation workstation: produce high-quality stem files with many models, for mixing, covers and production | A practice tool: split a song, then mute, solo and compare the stems in a local web page, for musicians practising |
-| Form | Desktop app with installers for Windows / macOS / Linux | Python scripts + a local web page |
-| Models | Many architectures (VR, MDX-Net, MDX23C, Demucs and more), mostly trained by the UVR developers apart from Demucs | Demucs and BS-RoFormer-SW, plus six classical signal-processing methods for comparison |
+| Form | Desktop app with installers for Windows / macOS / Linux | Python + local web pages (workbench + practice player) |
+| Models | Many architectures (VR, MDX-Net, MDX23C, Demucs and more), mostly trained by the UVR developers apart from Demucs | Demucs 6-stem and BS-RoFormer-SW 6-stem (plus a comparison experiment with classical signal processing) |
 | Combining models | Yes (Ensemble) | Fusion of the classical methods (`combo`); none yet for the AI models |
-| Quality evaluation | Listening by the user | Built-in scoring (SDR on MUSDB18 test clips) and Chinese/English listening pages |
+| Quality evaluation | Listening by the user | Built-in scoring (SDR on MUSDB18 test clips) and comparison listening pages, see the [experiment notes](docs/experiments.en.md) |
 | Speed / pitch change | Tools based on Rubber Band that process and write new files | Adjusted in real time during playback, with different speeds for different passages |
 | Guitar | One guitar stem via Demucs 6-stem; no model that splits several guitars | Likewise one guitar stem (Demucs 6-stem or RoFormer-SW) |
 | Practice and transcription aids | None | Per-stem boost, A-B loop, metronome; detected tempo, key and chords; per-stem MIDI with a piano roll |
@@ -104,6 +114,7 @@ The two complement each other: for the most models and the best possible stem fi
 
 ```
 experiments/
+  app.py              the workbench: a local web page that takes a song step by step to the practice player
   common.py           paths, audio I/O, SDR scoring
   prepare_data.py     decode the MUSDB18 sample into 3-stem ground truth (data/gt/)
   prepare_bass.py     add bass ground truth
@@ -122,16 +133,15 @@ experiments/
   methods/            3-stem methods, one separate(mix, sr) per file
   methods_multi/      multi-stem AI models: demucs4, demucs6, roformer_sw
 results/              each method's scores (JSON) and experiment notes in method_info.json
+docs/                 experiment notes: the separation comparison and how to reproduce it
 ```
 
 Not in the repo (see `.gitignore`): `.venv/`, `.cache/` (model weights), `data/` (dataset),
 `songs/` (your music), `outputs/` (separated stems).
 
-## Running it on a new computer
+## Installation
 
 Python 3.10 or newer (tested with 3.12).
-
-**1. Environment**
 
 macOS / Linux:
 ```bash
@@ -158,42 +168,15 @@ automated tests; install notes are in the file.
 
 The commands below use macOS paths; on Windows replace `.venv/bin/python` with `.venv\Scripts\python`.
 
-**2. Scoring data (about 150 MB to download, about 0.5 GB unpacked)**
-
-```bash
-curl -L -o data/MUSDB18-7-STEMS.zip https://github.com/sigsep/sigsep-mus-db/releases/download/v0.4.0/MUSDB18-7-STEMS.zip
-```
-Unzip it into `data/musdb7/` (it should contain `train/` and `test/`), then:
-```bash
-.venv/bin/python experiments/prepare_data.py
-.venv/bin/python experiments/prepare_bass.py
-```
-
-**3. Add songs and run the models**
-
-Put your mp3 files in `songs/`, then:
-```bash
-.venv/bin/python experiments/make_excerpts.py
-.venv/bin/python experiments/evaluate_multi.py roformer_sw --split test --song --full
-.venv/bin/python experiments/build_page.py
-```
 Model weights download to `.cache/` on first use (Demucs about 80 MB, RoFormer-SW about 700 MB).
 
-**Output formats:**
+**Stem file formats:**
 - Full-song stems (`--full`) are the finished product for practice and default to **MP3** (VBR about V2, roughly 1/3 the size of lossless, no audible difference). Add `--lossless` to get FLAC.
 - The 60 s comparison excerpts (`--song`) are **always lossless FLAC**, because compression artifacts would blur the differences between methods.
 - To convert existing lossless stems to MP3: `.venv/bin/python experiments/export_mp3.py <lossless stems folder> <output folder>`.
 - Stems in every format are sample-exact in length, so they stay in sync when played together.
 
-**4. Listen**
-
-```bash
-.venv/bin/python -m http.server 8765
-```
-Open http://localhost:8765/compare.html in a browser (English: compare.en.html).
-If the separated stems were copied over from another computer as a folder (with `data/song_excerpts/` and
-`outputs/`, WAV or FLAC), `.venv/bin/python experiments/build_page.py --root <that folder>` builds both
-pages inside it.
+To reproduce the separation comparison (it needs the MUSDB18 test data), see [docs/experiments.en.md](docs/experiments.en.md).
 
 ## Licences and caveats
 
