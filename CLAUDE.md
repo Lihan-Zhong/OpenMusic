@@ -29,6 +29,6 @@ Set up per README, put the user's songs in `songs/`, then run
 - Code is AGPL-3.0: the user wants the project and every derivative to stay open source, including
   network/web deployments. Dependencies and copied code must be AGPL-3.0-compatible (MIT, BSD, ISC,
   Apache-2.0, LGPL, GPL-3.0 are fine; avoid GPL-2.0-only, non-commercial or proprietary code).
-  README is bilingual: keep README.md (English)
-  and README.zh-CN.md (Chinese) in sync.
+  README is bilingual and Chinese is the default language: README.md is Chinese (shown by GitHub),
+  README.en.md is English. Keep them in sync.
 - On the 16 GB Mac, run at most one heavy model job at a time.
