@@ -455,10 +455,10 @@ class Handler(SimpleHTTPRequestHandler):
         return self._json({"ok": True, "name": name, "song": target.stem})
 
 
-def other_workbench(port):
+def other_workbench(port, include_own=False):
     """The URL of another workbench already running on this computer, if any (one heavy job at a time)."""
     for p in range(8780, 8800):
-        if p == port:
+        if p == port and not include_own:
             continue
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{p}/api/state", timeout=0.2) as r:
@@ -473,15 +473,26 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8780)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--reuse", action="store_true",
+                        help="if a workbench is already running, open that one in the browser and exit (the launchers)")
     args = parser.parse_args()
 
-    other = other_workbench(args.port)
+    other = other_workbench(args.port, include_own=args.reuse)
+    if other and args.reuse:
+        print(f"OpenMusic workbench is already running: {other} / 工作台已经在运行：{other}", flush=True)
+        if not args.no_browser:
+            webbrowser.open(other)
+        return
     if other:
         print(f"Another workbench is already running at {other} — use that one, so two heavy jobs never run "
               f"at the same time. / 另一个工作台已经在 {other} 运行，请用那个，免得同时跑两个大任务。", flush=True)
     Handler.jobs = Jobs()
     threading.Thread(target=lambda: Handler.hardware.update(gpu=detect_hardware()), daemon=True).start()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    except OSError as e:
+        sys.exit(f"Port {args.port} is in use by another program ({e}); try --port {args.port + 1}. / "
+                 f"端口 {args.port} 被别的程序占用了，可以加 --port {args.port + 1} 换一个。")
     url = f"http://localhost:{args.port}/"
     print(f"OpenMusic workbench: {url}  (Ctrl+C to stop)", flush=True)
     if not args.no_browser:
@@ -489,6 +500,8 @@ def main():
     def stop(*_):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
+    if hasattr(signal, "SIGHUP"):                    # the launcher's Terminal window was closed
+        signal.signal(signal.SIGHUP, stop)
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, stop)
     try:
@@ -559,7 +572,7 @@ pre{background:var(--chip);border-radius:8px;padding:10px;max-height:260px;overf
 <section class=card><h2 data-t=add></h2>
  <label class=drop id=drop><input type=file id=file accept=".mp3,.m4a,.wav,.flac,.aac,.ogg" hidden multiple><span data-t=drop></span></label>
  <p class="small muted" id=upmsg></p></section>
-<section class=card><h2 data-t=lib></h2><div class=tabs id=tabs></div><p class="small muted" id=libnote></p><p class="small warn" id=libwarn hidden></p>
+<section class=card><h2 data-t=lib></h2><div class=tabs id=tabs></div><p class="small muted" id=libnote></p><p class="small warn" id=libwarn hidden></p><p id=batch hidden><button class="act primary" id=batchbtn></button> <span class="small muted" id=batchnote></span></p>
  <table><thead><tr><th data-t=c_song></th><th data-t=c_split></th><th data-t=c_an></th><th data-t=c_midi></th><th data-t=c_player></th><th></th></tr></thead><tbody id=rows></tbody></table></section>
 <section class=card id=jobcard><h2 data-t=jobs></h2><div id=jobs class=small></div></section>
 <p class="small muted" data-t=foot></p>
@@ -573,6 +586,7 @@ add:'1. 添加歌曲',drop:'把音频文件拖到这里，或点这里选择文�
 L_demucs6:'Demucs 6 轨',L_demucs6s:'任何电脑都能跑，Mac 上一首约 1 分钟',L_roformer_sw:'RoFormer 6 轨',L_roformer_sws:'效果更好，需要 NVIDIA 显卡',L_mp3:'已整理的资料库',L_mp3s:'outputs/mp3，已经分好轨，每首注明了模型',
 note_split:'分轨结果在 {root}/。',note_nosplit:'这里的歌已经分好轨（{root}/），从第 3 步开始。',
 gpunote:'这台电脑没有 NVIDIA 显卡：不建议在这里用 RoFormer 分轨（可能占用 6 GB 以上内存、卡住电脑）。已经分好的歌仍可以分析、扒谱和练习。',
+batch:'全部一键处理（{n} 首没做完）',batchnote:'把还没做完的歌按顺序排进任务，一次只跑一个；放进 songs/ 的新歌几秒内会出现在这里。',
 gpuwarn:'这台电脑没有 NVIDIA 显卡：RoFormer 会很慢，还可能占用 6 GB 以上内存让电脑卡住，建议在显卡电脑上跑。仍要继续吗？',
 all:'一键处理',practise:'去练习',redo:'重做',run:'运行',open:'打开',none:'这里还没有歌。先在上面添加一首。',nosrc:'没有原始音频',
 st_ok:'完成',st_todo:'未做',st_run:'进行中',st_queued:'排队中',st_bad:'失败',st_stale:'需更新',
@@ -589,6 +603,7 @@ add:'1. Add a song',drop:'Drop audio files here, or click to choose',lib:'2–5.
 L_demucs6:'Demucs 6-stem',L_demucs6s:'runs on any computer, about 1 min per song on a Mac',L_roformer_sw:'RoFormer 6-stem',L_roformer_sws:'better quality, needs an NVIDIA GPU',L_mp3:'Collected library',L_mp3s:'outputs/mp3, already split; each song shows its model',
 note_split:'Stems go to {root}/.',note_nosplit:'Songs here are already split ({root}/); start at step 3.',
 gpunote:'This computer has no NVIDIA GPU: splitting with RoFormer here is not recommended (it may use over 6 GB of memory and freeze the computer). Songs already split can still be analysed, transcribed and practised.',
+batch:'Process all ({n} not finished)',batchnote:'Queues every song that is not finished, one job at a time; new songs put in songs/ show up here within a few seconds.',
 gpuwarn:'This computer has no NVIDIA GPU: RoFormer will be slow and may use over 6 GB of memory and freeze the computer. Running it on a GPU machine is recommended. Continue anyway?',
 all:'Process all',practise:'Practise',redo:'Redo',run:'Run',open:'Open',none:'No songs here yet. Add one above first.',nosrc:'no source audio',
 st_ok:'done',st_todo:'not yet',st_run:'running',st_queued:'queued',st_bad:'failed',st_stale:'needs update',
@@ -642,7 +657,17 @@ function render(){if(!S)return;const L=S.libraries;const tabs=document.getElemen
   <td data-h="${t('c_player')}">${chip(s.name,'player',d.player,s.player==='stale')}<div class=detail></div>${s.player_url?`<a class="act" href="${playerHref(s)}">${t('open')} →</a>`:''}</td>
   <td>${last}</td></tr>`}).join('');
  rows.querySelectorAll('button[data-song]').forEach(b=>b.onclick=()=>run(b.dataset.song,b.dataset.step,!!b.dataset.all));
+ // every song in this library that can still be taken further and is not already queued or running
+ const todo=cur.songs.filter(s=>{const d=s.done;return !(d.split&&d.analyze&&d.transcribe&&d.gp&&d.player)&&(d.split||(cur.split&&s.source))
+  &&!active().some(x=>x.library===lib&&x.song===s.name)});
+ const batch=document.getElementById('batch');batch.hidden=!todo.length;
+ if(todo.length){const b=document.getElementById('batchbtn');b.textContent=t('batch',{n:todo.length});document.getElementById('batchnote').textContent=t('batchnote');
+  b.onclick=()=>runAll(todo.map(s=>s.name))}
  renderJobs()}
+async function runAll(names){
+ if(lib==='roformer_sw'&&S.hardware.gpu!=='cuda'&&!confirm(t('gpuwarn')))return;
+ try{for(const song of names){const r=await post('/api/run',JSON.stringify({library:lib,song,steps:null}));if(!r.ok){alert((await r.json()).error);break}}
+  await poll();document.getElementById('jobcard').scrollIntoView({behavior:'smooth',block:'nearest'})}catch(e){offline=true;renderJobs()}}
 let jobsHtml='';
 function renderJobs(){const J=S.jobs,box=document.getElementById('jobs');let h='';
  if(offline)h+=`<div class=bad>${t('offline')}</div>`;

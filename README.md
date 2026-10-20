@@ -11,14 +11,14 @@
 ## 快速开始
 
 1. 按下面「安装」一节装好环境。
-2. 打开工作台：
+2. 打开工作台：在访达里双击项目文件夹里的 **`OpenMusic.command`**（Windows 上双击 **`OpenMusic.bat`**）。会弹出一个终端窗口，浏览器自动打开 http://localhost:8780 ；工作台已经开着的话，只是在浏览器里打开它。也可以在终端里运行 `.venv/bin/python experiments/app.py`。
+3. 把一首 mp3 拖进网页，选一个分轨模型，点「一键处理」，处理完点「打开」进入练习播放器。
 
-   ```bash
-   .venv/bin/python experiments/app.py
-   ```
-
-   浏览器会自动打开 http://localhost:8780 。
-3. 把一首 mp3 拖进去，选一个分轨模型，点「一键处理」，处理完点「打开」进入练习播放器。
+**日常使用**：
+- 想处理的歌直接放进 `songs/` 文件夹就行，几秒内会出现在工作台里；放了好几首时，点列表上方的「全部一键处理」，它们会一首接一首处理，一次只跑一个任务。
+- 分好的音轨是 MP3（一首歌 6 轨加上分析、MIDI 和 Guitar Pro 谱大约 15–70 MB）；要无损的 FLAC 用 `evaluate_multi.py --lossless`。
+- 用完关掉那个终端窗口（或在里面按 Ctrl+C），工作台就停了；正在跑的任务也会停下，下次点「运行」重做那一步即可。
+- 可以把 `OpenMusic.command` 拖到程序坞右侧，或者在桌面放一个它的替身，以后点一下就打开。如果是从 GitHub 下载的 zip，macOS 第一次可能不让打开：按住 Control 点它，选「打开」。
 
 ## 工作台
 
@@ -114,6 +114,7 @@
 ## 目录
 
 ```
+OpenMusic.command     双击启动工作台（macOS）；OpenMusic.bat 是 Windows 版
 experiments/
   app.py              工作台：一个本地网页，一步步把歌处理到练习播放器
   common.py           路径、读写音频、SDR 打分

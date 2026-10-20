@@ -1,0 +1,3 @@
+# the Windows launcher needs CRLF line ends, the Mac launcher LF
+*.bat text eol=crlf
+*.command text eol=lf

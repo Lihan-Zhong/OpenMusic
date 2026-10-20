@@ -13,14 +13,22 @@ web page. It is Python that runs on your own computer; there is no mobile versio
 ## Quick start
 
 1. Set up the environment as in "Installation" below.
-2. Open the workbench:
+2. Open the workbench: double-click **`OpenMusic.command`** in the project folder in Finder (on Windows,
+   **`OpenMusic.bat`**). A terminal window opens and your browser shows http://localhost:8780 ; if the workbench is
+   already running, it is just opened in the browser. In a terminal, `.venv/bin/python experiments/app.py` does the same.
+3. Drop an mp3 into the page, choose a separation model, click "Process all", then "Open" to go to the practice player.
 
-   ```bash
-   .venv/bin/python experiments/app.py
-   ```
-
-   Your browser opens http://localhost:8780 .
-3. Drop an mp3 in, choose a separation model, click "Process all", then "Open" to go to the practice player.
+**Everyday use**:
+- Just put the songs you want to process into the `songs/` folder; they show up in the workbench within a few
+  seconds. With several new songs, click "Process all (n not finished)" above the list: they are processed one
+  after another, one job at a time.
+- The stems are MP3 (about 15-70 MB per song for 6 stems plus analysis, MIDI and the Guitar Pro file); use
+  `evaluate_multi.py --lossless` for FLAC.
+- When you are done, close the terminal window (or press Ctrl+C in it) and the workbench stops; a job that was
+  running stops too, so click "Run" for that step next time.
+- Drag `OpenMusic.command` to the right side of the Dock, or put an alias of it on the desktop, to open it with
+  one click. If you downloaded the project as a zip from GitHub, macOS may refuse to open it the first time:
+  Control-click it and choose "Open".
 
 ## Workbench
 
@@ -179,6 +187,7 @@ The two complement each other: for the most models and the best possible stem fi
 ## Layout
 
 ```
+OpenMusic.command     double-click to start the workbench (macOS); OpenMusic.bat is the Windows one
 experiments/
   app.py              the workbench: a local web page that takes a song step by step to the practice player
   common.py           paths, audio I/O, SDR scoring

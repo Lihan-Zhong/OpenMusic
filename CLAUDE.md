@@ -25,7 +25,9 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
 - Player usability pass (eec5571): loops can be cleared (✕, Esc, double-click), Set A/B keys, a sticky transport
   with a loop readout, trainer progress and restore, a restored-settings notice and 本曲恢复默认; checked by the
   ux section of `tests/player_test.py`. Stems are read-only for every step but the split (test_transcribe checks).
-- Workbench `experiments/app.py` (stdlib only, http://localhost:8780) is the main entry: upload to songs/ ->
+- Workbench `experiments/app.py` (stdlib only, http://localhost:8780) is the main entry, started by double-clicking
+  OpenMusic.command (Mac) / OpenMusic.bat (Windows), which run `app.py --reuse` (opens a running one instead of a
+  second); songs dropped into songs/ appear on their own, and "全部一键处理" queues every unfinished song: upload to songs/ ->
   split (Demucs 6 or RoFormer via `evaluate_multi.py <model> --full --no-score --only=<song>`) -> analyze ->
   transcribe -> build_player, one job at a time; the player links back to it. Hardened: 127.0.0.1, Host check,
   X-OpenMusic header on POST, no framing, static files only under outputs/, song-name validator.
