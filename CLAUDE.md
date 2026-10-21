@@ -41,7 +41,9 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   BS-RoFormer-SW 10.3 dB. The README only keeps a short model guide.
 - Known gaps: chord extensions are hints; Beat This! locks to 2x/4x in noise passages (Carsick 140-306 s, no drums):
   analyze.py evens the grid out (regular_beats, bar_lines; transcribe.py uses it as-is), but there it is a guess;
-  guitar MIDI is a dense draft, fast low bass is missed; nobody has listened to slow-speed quality yet. The user
+  guitar MIDI is a dense draft, fast low bass is missed; transcribe.py scales Basic Pitch's thresholds by the
+  stem's confidence (scaled_settings: 75th percentile / 0.6, floor 0.25 one-voice / 0.3 polyphonic), which
+  fixed Surabaya's bass (23 % -> 59 % of its sounding time covered); repeated same-pitch notes can still merge; nobody has listened to slow-speed quality yet. The user
   hears damage in the guitar stem: separation or the stretch engine, not yet measured.
 
 ## Testing

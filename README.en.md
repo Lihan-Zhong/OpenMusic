@@ -64,7 +64,9 @@ Once a song is split into stems, practise with it in a local web page:
 - **Transcription**: every stem is turned into MIDI; the page shows a piano roll with note names and the notes
   sounding now. The MIDI carries the song's tempo changes and has exactly the player's beats and bar lines, so
   bars line up when imported into Guitar Pro or MuseScore. Bass is the most accurate; guitar and piano are
-  dense rough drafts. Below the piano roll there is also the whole song as a Guitar Pro file.
+  dense rough drafts. When the note model is unsure about a whole stem (a very low synth bass, a heavily
+  distorted guitar), that stem's thresholds are lowered for that song, so whole passages are not left without
+  notes. Below the piano roll there is also the whole song as a Guitar Pro file.
 - **Drums**: the drum stem becomes a General MIDI drum track (kick, snare, closed and open hi-hat, three toms,
   crash, ride); choose "Drums" in the note view to see one row per kit piece. Kick and snare are the most
   accurate (F about 0.9 / 0.8 on real recordings split from the mix), hi-hat is a draft, toms and cymbals are

@@ -44,6 +44,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 import time
 from importlib.metadata import version
 from pathlib import Path
@@ -82,6 +83,16 @@ HOP = 256                       # Basic Pitch's frame hop (11.6 ms); the loudnes
 SILENT_DB = -45.0               # a stem counts as audible where its RMS is above this (dBFS) ...
 MIN_AUDIBLE_S = 2.0             # ... for at least this long; otherwise it is skipped
 GATE_DB = 30.0                  # drop notes more than this below the stem's loud level (99th percentile)
+# Basic Pitch's confidence differs a lot between recordings: on clean stems the 75th percentile of each frame's
+# strongest note is 0.6-0.9, but on a very low or synth bass or a fuzz guitar it can be 0.2-0.4 all through
+# (Crayon Case - Surabaya), and a fixed note threshold of 0.4 then leaves whole passages without a note. So the
+# onset and note thresholds are scaled by that percentile / CONFIDENCE_REF, never up, and down to MIN_SCALE
+# (0.4 -> 0.25 for one-voice stems, whose ghosts one_voice() removes; 0.4 -> 0.3, Basic Pitch's own default,
+# for polyphonic ones). Only for stems that sound through at least ADAPT_MIN_AUDIBLE of the song, so a stem
+# that is mostly bleed does not have its bleed turned into notes.
+CONFIDENCE_REF = 0.6
+MIN_SCALE = {True: 0.625, False: 0.75}
+ADAPT_MIN_AUDIBLE = 0.3
 
 PPQ = 480                       # MIDI ticks per beat
 TEMPO_TOLERANCE_S = 0.025       # every analysis.json beat lands within this of its MIDI beat
@@ -135,10 +146,11 @@ def model_output(y):
     return {k: v[:n] for k, v in out.items()}
 
 
-def basic_pitch_notes(y, s):
-    """Notes [(start_s, end_s, pitch, amplitude 0-1)] from Basic Pitch's own decoding with settings s."""
+def basic_pitch_notes(out, s):
+    """Notes [(start_s, end_s, pitch, amplitude 0-1)] from Basic Pitch's own decoding of model_output() with
+    settings s."""
     _, events = basic_pitch()["note_creation"].model_output_to_notes(
-        model_output(y), onset_thresh=s["onset"], frame_thresh=s["frame"],
+        out, onset_thresh=s["onset"], frame_thresh=s["frame"],
         min_note_len=int(round(s["min_ms"] / 1000 * SR / HOP)),
         min_freq=float(librosa.midi_to_hz(s["lo"])), max_freq=float(librosa.midi_to_hz(s["hi"] + 1)),
         include_pitch_bends=False, melodia_trick=True)
@@ -196,10 +208,26 @@ def untangle_same_pitch(notes):
     return [n for n in out if n[1] > n[0]]
 
 
-def transcribe(y, stem):
-    """Notes [(start_s, end_s, pitch, velocity 1-127)] for one mono 22.05 kHz stem."""
-    s = SETTINGS[stem]
-    notes = gate(basic_pitch_notes(y, s), loudness_db(y))
+def scaled_settings(s, out, db):
+    """The stem's settings with its onset and note thresholds scaled to how sure Basic Pitch is about this
+    recording (see CONFIDENCE_REF), and the scale factor (1.0 = unchanged)."""
+    n = min(len(out["note"]), len(db))
+    audible = db[:n] > SILENT_DB
+    if s.get("fixed") or not n or audible.mean() < ADAPT_MIN_AUDIBLE:
+        return s, 1.0
+    p75 = float(np.percentile(out["note"][:n].max(axis=1)[audible], 75))
+    scale = float(np.clip(p75 / CONFIDENCE_REF, MIN_SCALE[s["one_voice"]], 1.0))
+    return dict(s, onset=round(s["onset"] * scale, 3), frame=round(s["frame"] * scale, 3)), scale
+
+
+def transcribe(y, stem, used=None):
+    """Notes [(start_s, end_s, pitch, velocity 1-127)] for one mono 22.05 kHz stem. If `used` is a dict, it
+    receives the thresholds that were used and their scale."""
+    db, out = loudness_db(y), model_output(y)
+    s, scale = scaled_settings(SETTINGS[stem], out, db)
+    if used is not None:
+        used.update(onset=s["onset"], frame=s["frame"], scale=scale)
+    notes = gate(basic_pitch_notes(out, s), db)
     if s["one_voice"]:
         notes = one_voice(notes, s["min_ms"] / 1000)
     notes = untangle_same_pitch(notes)
@@ -346,7 +374,7 @@ def read_analysis(song_dir):
         return None  # half-written or broken: fall back to a fixed tempo
 
 
-def method_text(stem, tempo_note, backend="builtin"):
+def method_text(stem, tempo_note, backend="builtin", used=None):
     if stem == "drums" and backend == "adtof-pytorch":
         return (f"ADTOF-pytorch plugin (ADTOF Frame_RNN by Zehren, Alunno & Bientinesi, PyTorch port by Xavier "
                 f"Riley; weights CC BY-NC-SA 4.0) for the hits and 5 classes, drums.py for the piece within a class "
@@ -354,10 +382,11 @@ def method_text(stem, tempo_note, backend="builtin"):
     if stem == "drums":
         return (f"drums.py: onset candidates + a small neural network trained on E-GMD (CC BY 4.0), "
                 f"{len(drums.PIECES)} kit pieces as General MIDI drums on channel 10; MIDI: {tempo_note}")
-    s = SETTINGS[stem]
+    s = dict(SETTINGS[stem], **(used or {}))
     lo, hi = librosa.midi_to_note(s["lo"], unicode=False), librosa.midi_to_note(s["hi"], unicode=False)
+    scaled = f" (scaled x{s['scale']:.2f}: Basic Pitch was unsure about this stem)" if s.get("scale", 1) < 1 else ""
     return (f"basic-pitch {version('basic-pitch')} (ONNX, onnxruntime {version('onnxruntime')}), "
-            f"onset {s['onset']}, frame {s['frame']}, min note {s['min_ms']} ms, pitch {lo}-{hi}"
+            f"onset {s['onset']}, frame {s['frame']}{scaled}, min note {s['min_ms']} ms, pitch {lo}-{hi}"
             f"{', one voice' if s['one_voice'] else ', polyphonic'}, notes > {GATE_DB:g} dB below the stem's "
             f"loud level dropped; MIDI: {tempo_note}")
 
@@ -412,14 +441,15 @@ def transcribe_song(song_dir, stems, wanted, force=False, drums_choice="auto"):
             except (OSError, RuntimeError) as e:
                 print(f"  drums: the ADTOF-pytorch plugin failed, using the built-in model instead ({e})")
                 backend, command = "builtin", None
+        used = {}
         if stem == "drums" and not command:
             notes = drums.transcribe(y)
         elif stem != "drums":
-            notes = transcribe(y, stem)
+            notes = transcribe(y, stem, used)
         pitches = [n[2] for n in notes]
         pitch_range = [min(pitches), max(pitches)] if notes else []
         out = {"version": 1, "stem": stem, "notes": [list(n) for n in notes], "pitch_range": pitch_range,
-               "method": method_text(stem, tempo_note, backend)}
+               "method": method_text(stem, tempo_note, backend, used)}
         if stem == "drums":
             out["backend"] = backend
             out["kit"] = {str(drums.GM_NOTE[p]): drums.NAMES[p] for p in drums.PIECES}
@@ -432,7 +462,8 @@ def transcribe_song(song_dir, stems, wanted, force=False, drums_choice="auto"):
             print(f"  drums ({backend}): {len(notes)} hits ({span}), {time.perf_counter() - start:.1f} s")
             continue
         span = "-".join(librosa.midi_to_note(p, unicode=False) for p in pitch_range) or "no notes"
-        print(f"  {stem}: {len(notes)} notes, {span}, {time.perf_counter() - start:.1f} s")
+        scaled = f", thresholds x{used['scale']:.2f} (Basic Pitch was unsure)" if used.get("scale", 1) < 1 else ""
+        print(f"  {stem}: {len(notes)} notes, {span}{scaled}, {time.perf_counter() - start:.1f} s")
 
 
 def main():
@@ -457,6 +488,7 @@ def main():
         for knob in ("onset", "frame"):
             if getattr(args, knob) is not None:
                 SETTINGS[name][knob] = getattr(args, knob)
+                SETTINGS[name]["fixed"] = True      # thresholds given by hand are used as they are
                 args.force = True
 
     if not args.stems_root.is_dir():
@@ -478,3 +510,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Every file is written and closed by now. On macOS onnxruntime's thread pool now and then aborts while Python
+    # shuts down ("libc++abi: ... recursive_mutex lock failed"), which turned a finished run into a failed
+    # workbench step; leave without that teardown. Errors still exit through SystemExit above, with their code.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

@@ -441,6 +441,34 @@ def check_songs(stems_root):
     return failures
 
 
+def check_threshold_scaling():
+    """Basic Pitch's thresholds follow how sure it is about a stem (transcribe.scaled_settings), on made-up
+    model outputs: unsure all through -> lowered to the floor; sure -> unchanged; mostly silent -> unchanged."""
+    print("\nThreshold scaling:")
+    frames, failures = 1000, []
+    loud, quiet = np.full(frames, -15.0), np.full(frames, -80.0)
+    quiet[:100] = -15.0                                  # sounds for 10 % of the song only
+
+    def model(level):
+        note = np.zeros((frames, 88), np.float32)
+        note[:, 20] = level
+        return {"note": note}
+    cases = [("unsure bass", "bass", 0.3, loud, 0.25), ("half-sure bass", "bass", 0.45, loud, 0.3),
+             ("sure bass", "bass", 0.8, loud, 0.4), ("unsure guitar", "guitar", 0.2, loud, 0.3),
+             ("unsure, mostly silent", "piano", 0.2, quiet, 0.4)]
+    for name, stem, level, db, want in cases:
+        s, scale = transcribe.scaled_settings(transcribe.SETTINGS[stem], model(level), db)
+        ok = abs(s["frame"] - want) < 1e-9 and s["onset"] <= transcribe.SETTINGS[stem]["onset"]
+        print(f"  {name:22} confidence {level:.2f}: frame {s['frame']}, onset {s['onset']} (x{scale:.2f})"
+              f"{'' if ok else f'  expected frame {want}'}")
+        if not ok:
+            failures.append(f"threshold scaling: {name}")
+    fixed = dict(transcribe.SETTINGS["bass"], fixed=True)
+    if transcribe.scaled_settings(fixed, model(0.3), loud)[1] != 1.0:
+        failures.append("threshold scaling: thresholds given by hand must stay")
+    return failures
+
+
 def check_tempo_map():
     """Write a MIDI file with a note on every true beat and read it back: every beat should land on its own
     MIDI beat (consecutive beats one MIDI beat apart), every true downbeat on a bar line, few time signatures."""
@@ -495,7 +523,7 @@ def main():
         sys.exit(1 if failures else 0)
     cases = make_cases()
     write_cases(cases)  # a few seconds; always fresh, so the audio matches the reference notes
-    failures = check_transcription(cases) + check_tempo_map()
+    failures = check_transcription(cases) + check_threshold_scaling() + check_tempo_map()
     print("\nall checks passed" if not failures else f"\nFAILED: {', '.join(failures)}")
     sys.exit(1 if failures else 0)
 
