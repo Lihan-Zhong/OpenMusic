@@ -92,7 +92,16 @@ TEXT = {
         "almost_silent": "几乎无声", "almost_silent_title": "分轨模型在这首歌里几乎没分出这一轨",
         "midi": "MIDI", "midi_title": "下载这一轨的扒谱 MIDI（可导入 Guitar Pro / MuseScore；原调、原速，播放器里的变调和变速不会写进去）",
         "gp": "Guitar Pro",
-        "gp_title": "下载整首歌的 Guitar Pro 谱（.gp，Guitar Pro 7、8 用）：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名；原调、原速",
+        "gp_title": "下载整首歌的 Guitar Pro 谱（.gp，Guitar Pro 7、8 用）：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名；"
+                    "原调、原速；音频轨是人声 + 吉他 + 其他",
+        "gp_choose": "⬇ Guitar Pro…", "gp_choose_title": "选好谱里垫的音频轨，再生成、下载 Guitar Pro 谱",
+        "gp_h": "下载 Guitar Pro 谱",
+        "gp_hint": "谱里可以垫一条音频轨。贝斯、鼓、人声旋律的 MIDI 扒得准，由 Guitar Pro 演奏；吉他要靠耳朵听，"
+                   "所以默认垫人声、吉他和其他。",
+        "gp_stems": "分轨混音：", "gp_original": "原曲（整首录音）", "gp_none": "不放音频（文件最小）",
+        "gp_go": "生成并下载", "gp_cancel": "取消", "gp_busy": "正在生成，需要几秒…", "gp_done": "已下载：{name}",
+        "gp_err": "生成失败：{msg}", "gp_pick": "至少勾一轨，或者选「不放音频」。",
+        "gp_label_original": "原曲", "gp_label_none": "无音频",
         "limiting": "防爆音：压低 {db} dB",
         "limiter_title": "音量调得很大时自动压低一点，避免破音（超过 −2 dBFS 的部分会被压下来）",
         "bar_beat": "第 {bar} 小节 第 {beat} 拍", "pickup_beat": "弱起 第 {beat} 拍", "beat_only": "第 {beat} 拍",
@@ -168,7 +177,17 @@ TEXT = {
                                       "key and tempo, the player's pitch and speed changes are not applied)",
         "gp": "Guitar Pro",
         "gp_title": "Download the whole song as one Guitar Pro file (.gp, for Guitar Pro 7 and 8): every stem a "
-                    "track, tab for guitar and bass, chord names above; original key and tempo",
+                    "track, tab for guitar and bass, chord names above; original key and tempo; the audio track is "
+                    "vocals + guitar + other",
+        "gp_choose": "⬇ Guitar Pro…", "gp_choose_title": "Choose the audio track for the Guitar Pro file, then build and download it",
+        "gp_h": "Download a Guitar Pro file",
+        "gp_hint": "The file can carry an audio track. The bass, drums and vocal-melody MIDI are accurate, so Guitar Pro "
+                   "plays them; the guitar has to be worked out by ear, so the default track is vocals, guitar and other.",
+        "gp_stems": "Mix of stems:", "gp_original": "The original song (the whole recording)",
+        "gp_none": "No audio (smallest file)", "gp_go": "Build and download", "gp_cancel": "Cancel",
+        "gp_busy": "Building, this takes a few seconds…", "gp_done": "Downloaded: {name}", "gp_err": "Could not build it: {msg}",
+        "gp_pick": "Tick at least one stem, or choose “No audio”.",
+        "gp_label_original": "original", "gp_label_none": "no audio",
         "limiting": "Clip guard: −{db} dB",
         "limiter_title": "When the mix gets very loud it is turned down a little so it never distorts (anything above "
                          "−2 dBFS is pulled down)",
@@ -348,6 +367,13 @@ input[type=range] { accent-color: var(--accent); }
 .ctl .under { justify-self: start; }
 #restored button { margin-left: 6px; padding: 2px 8px; font-size: 12.5px; }
 footer button { padding: 2px 8px; font-size: 12px; }
+#gp-dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 18px;
+  max-width: min(520px, calc(100vw - 32px)); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+#gp-dialog::backdrop { background: rgba(0,0,0,.35); }
+#gp-dialog h2 { font-size: 16px; }
+#gp-dialog .opt { display: block; margin: 10px 0 4px; white-space: normal; }
+#gp-stems { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 4px 24px; }
+#gp-dialog .row { margin-top: 14px; }
 .ctl { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 10px; }
 .ctl input[type=range] { width: 100%; }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 28px; }
@@ -495,6 +521,16 @@ code { background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
     </div>
   </section>
   <footer><p><button id="reset-song-2"></button></p><p id="credits"></p></footer>
+  <dialog id="gp-dialog">
+    <h2 id="gp-h"></h2>
+    <p class="hint" id="gp-hint"></p>
+    <label class="opt"><input type="radio" name="gp-audio" value="stems"> <span id="gp-l-stems"></span></label>
+    <div id="gp-stems"></div>
+    <label class="opt"><input type="radio" name="gp-audio" value="original"> <span id="gp-l-original"></span></label>
+    <label class="opt"><input type="radio" name="gp-audio" value="none"> <span id="gp-l-none"></span></label>
+    <p class="status" id="gp-status"></p>
+    <div class="row"><button id="gp-go" class="on"></button><button id="gp-cancel"></button></div>
+  </dialog>
 </div>
 </main>
 <script id="config" type="application/json">__CONFIG__</script>
@@ -1401,10 +1437,55 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
   rollSel.value = rollStem;
   $('roll-box').hidden = !rollStems.length;
   $('roll-gp').replaceChildren();
-  if (song.gp) {
+  if (!$('home').hidden && Object.keys(song.midi).length) {
+    // opened from the workbench: choose the audio track, and the workbench builds the file on the spot
+    const b = document.createElement('button'); b.textContent = T.gp_choose; b.title = T.gp_choose_title;
+    b.onclick = openGpDialog; $('roll-gp').append(b);
+  } else if (song.gp) {            // a plain file server: the file the pipeline wrote (vocals + guitar + other)
     const a = document.createElement('a'); a.href = song.base + song.gp; a.download = song.name + '.gp';
     a.textContent = '⬇ ' + T.gp; a.title = T.gp_title; $('roll-gp').append(a);
   }
+  // ---- Guitar Pro download with a chosen audio track (POST /api/gp on the workbench; nothing is stored)
+  const GP_KEY = 'openmusic-gp-audio', GP_DEFAULT = {audio: 'stems', stems: ['vocals', 'guitar', 'other']};
+  function openGpDialog() {
+    const d = $('gp-dialog'), pick = {...GP_DEFAULT, ...(store.get(GP_KEY) || {})};
+    $('gp-h').textContent = T.gp_h; $('gp-hint').textContent = T.gp_hint; $('gp-l-stems').textContent = T.gp_stems;
+    $('gp-l-original').textContent = T.gp_original; $('gp-l-none').textContent = T.gp_none;
+    $('gp-go').textContent = T.gp_go; $('gp-cancel').textContent = T.gp_cancel; $('gp-status').textContent = '';
+    $('gp-stems').replaceChildren(...song.stems.map(s => {
+      const l = document.createElement('label'), c = document.createElement('input');
+      c.type = 'checkbox'; c.value = s.name; c.checked = pick.stems.includes(s.name);
+      c.onchange = () => { d.querySelector('input[value=stems]').checked = true; };
+      l.append(c, ' ' + (T.stems[s.name] || s.name)); return l;
+    }));
+    for (const r of d.querySelectorAll('input[name=gp-audio]')) r.checked = r.value === pick.audio;
+    $('gp-go').disabled = false;
+    d.showModal();
+  }
+  $('gp-cancel').onclick = () => $('gp-dialog').close();
+  $('gp-go').onclick = async () => {
+    const d = $('gp-dialog'), audio = d.querySelector('input[name=gp-audio]:checked')?.value || 'stems';
+    const chosen = [...$('gp-stems').querySelectorAll('input:checked')].map(c => c.value);
+    if (audio === 'stems' && !chosen.length) { $('gp-status').textContent = T.gp_pick; return; }
+    store.set(GP_KEY, {audio, stems: chosen.length ? chosen : GP_DEFAULT.stems});
+    const label = audio === 'original' ? T.gp_label_original : audio === 'none' ? T.gp_label_none
+      : chosen.map(n => T.stems[n] || n).join(' ');
+    const name = song.name + ' (' + label.replace(/[\\/:*?"<>|]/g, '-') + ').gp';
+    $('gp-status').textContent = T.gp_busy; $('gp-go').disabled = true;
+    try {
+      const root = location.pathname.replace(/[^/]*$/, '').replace(/^\//, '').replace(/\/$/, '');
+      const r = await fetch('/api/gp', {method: 'POST', headers: {'X-OpenMusic': '1', 'Content-Type': 'application/json'},
+        body: JSON.stringify({root: decodeURIComponent(root), song: song.name, audio, stems: chosen})});
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || e.error || r.status); }
+      const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+      a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      $('gp-status').textContent = fill(T.gp_done, {name});
+      setTimeout(() => d.close(), 1200);
+    } catch (e) {
+      $('gp-status').textContent = fill(T.gp_err, {msg: e.message || String(e)});
+    } finally { $('gp-go').disabled = false; }
+  };
   async function loadNotes() {
     rollStem = rollSel.value; save();
     $('roll-midi').replaceChildren();
@@ -1651,6 +1732,7 @@ function buildUI(song, analysis, rhythm, loaded, engine, tr) {
   document.addEventListener('focusin', e => { if (e.target.matches?.('input[type=number]')) e.target.dataset.was = e.target.value; });
   document.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector('dialog[open]')) return;          // the Guitar Pro dialog has the keys
     if (pressed && $('wave').contains(pressed)) return;          // the mouse is still down on the waveform
     const el = e.composedPath?.()[0] || e.target;                // also inside the waveform's shadow root
     if (el.matches?.('select, textarea, input:not([type=range]):not([type=checkbox]):not([type=radio])')) {

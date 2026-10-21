@@ -928,6 +928,60 @@ def run_ux(browser, base, problems):
     return res, checks
 
 
+def run_gp_dialog(browser, base, problems):
+    """Opened from the workbench, the player offers a Guitar Pro download with a chosen audio track (POST /api/gp,
+    answered here by a stand-in); the default is vocals + guitar + other."""
+    page = open_page(browser, f"{base}player.html?song=sync&from=workbench", problems)
+    seen = []
+
+    def fake_gp(route):
+        seen.append(json.loads(route.request.post_data or "{}") | {"header": route.request.headers.get("x-openmusic")})
+        route.fulfill(status=200, body=b"PK fake gp", headers={"Content-Type": "application/octet-stream"})
+    page.route("**/api/gp", fake_gp)
+    res = {"button": page.inner_text("#roll-gp")}
+    page.click("#roll-gp button")
+    res["defaults"] = page.evaluate("""() => ({audio: document.querySelector('#gp-dialog input[name=gp-audio]:checked').value,
+        stems: [...document.querySelectorAll('#gp-stems input:checked')].map(c => c.value)})""")
+    page.keyboard.press(" ")                              # the player's keys are off while the dialog is open
+    res["playing_in_dialog"] = page.evaluate("() => window.player.tr.playing")
+    with page.expect_download() as dl:
+        page.click("#gp-go")
+    res["download_name"] = dl.value.suggested_filename
+    res["request"] = seen[-1] if seen else None
+    page.wait_for_timeout(1500)
+    res["closed"] = page.evaluate("() => !document.getElementById('gp-dialog').open")
+    page.click("#roll-gp button")                         # bass only: the choice is remembered for next time
+    page.uncheck("#gp-stems input[value=vocals]"); page.uncheck("#gp-stems input[value=guitar]")
+    page.uncheck("#gp-stems input[value=other]"); page.check("#gp-stems input[value=bass]")
+    with page.expect_download() as dl:
+        page.click("#gp-go")
+    res["bass_name"] = dl.value.suggested_filename
+    page.wait_for_timeout(1500)
+    page.click("#roll-gp button")
+    res["remembered"] = page.evaluate("() => [...document.querySelectorAll('#gp-stems input:checked')].map(c => c.value)")
+    page.check("#gp-dialog input[value=none]")
+    with page.expect_download() as dl:
+        page.click("#gp-go")
+    res["none"] = {"name": dl.value.suggested_filename, "audio": seen[-1]["audio"]}
+    page.close()
+    page = open_page(browser, f"{base}player.html?song=sync", problems)   # not from the workbench: no dialog
+    res["plain_page_button"] = page.evaluate("() => !!document.querySelector('#roll-gp button')")
+    page.close()
+    checks = {
+        "Guitar Pro dialog: default audio is vocals + guitar + other": res["defaults"] == {"audio": "stems", "stems": ["vocals", "guitar", "other"]},
+        "Guitar Pro dialog: the request names the song, the audio and the stems": res["request"] is not None
+        and res["request"]["song"] == "sync" and res["request"]["audio"] == "stems"
+        and res["request"]["stems"] == ["vocals", "guitar", "other"] and res["request"]["header"] == "1",
+        "Guitar Pro dialog: the file is named after the choice, and the dialog closes": res["download_name"] == "sync (人声 吉他 其他).gp"
+        and res["bass_name"] == "sync (贝斯).gp" and res["closed"],
+        "Guitar Pro dialog: the last choice is remembered; no audio works": res["remembered"] == ["bass"]
+        and res["none"] == {"name": "sync (无音频).gp", "audio": "none"},
+        "Guitar Pro dialog: player keys are off while it is open": not res["playing_in_dialog"],
+        "Guitar Pro dialog: only offered when opened from the workbench": not res["plain_page_button"],
+    }
+    return res, checks
+
+
 def run_screens(browser, base, problems):
     SCREENS.mkdir(parents=True, exist_ok=True)
     shots = []
@@ -979,6 +1033,8 @@ def main():
                 report["ui"], c = run_ui(browser, base, problems)
                 checks.update(c)
                 report["ux"], c = run_ux(browser, base, problems)
+                checks.update(c)
+                report["gp_dialog"], c = run_gp_dialog(browser, base, problems)
                 checks.update(c)
             if args.cpu:
                 report["cpu"] = run_cpu(browser, base, problems)

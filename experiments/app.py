@@ -287,6 +287,10 @@ def command(job):
     return [py, str(scripts / script), root, f"--song={song}"] + (["--force"] if job["force"] else [])
 
 
+GP_AUDIO = ("stems", "original", "none")
+GP_LOCK = threading.Lock()   # one on-demand Guitar Pro file at a time: each one decodes and mixes several stems
+
+
 class Handler(SimpleHTTPRequestHandler):
     jobs, hardware = None, {"gpu": "unknown"}
     # Pin the types the pages need: on Windows, mimetypes reads the registry and may serve .js as text/plain.
@@ -373,6 +377,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"error": "bad json"}, 400)
         if url.path == "/api/run":
             return self.run(body)
+        if url.path == "/api/gp":
+            return self.gp(body)
         if url.path == "/api/cancel":
             job_id = body.get("id")
             self.jobs.cancel(job_id if isinstance(job_id, int) else -1)
@@ -411,6 +417,48 @@ class Handler(SimpleHTTPRequestHandler):
             steps.append("player")  # the player page lists songs and their files at build time
         ids = [self.jobs.add(key, song, s, force=bool(body.get("force"))) for s in STEPS if s in steps]
         return self._json({"ok": True, "jobs": ids})
+
+    def gp(self, body):
+        """A Guitar Pro file of one song with the audio track the user chose, built now and sent as a download;
+        nothing is written into the song folder (export_gp.py --out goes to a temp file)."""
+        key, song, audio, stems = body.get("library"), body.get("song"), body.get("audio"), body.get("stems")
+        if key is None and isinstance(body.get("root"), str):   # the player names its folder, e.g. "outputs/mp3"
+            key = next((k for k, lib in LIBRARIES.items() if lib["root"].relative_to(ROOT).as_posix() == body["root"]), None)
+        if (key not in LIBRARIES or not isinstance(song, str) or song not in library_songs(key, source_files())
+                or not inside(LIBRARIES[key]["root"], song)):
+            return self._json({"error": "unknown song"}, 400)
+        if audio not in GP_AUDIO:
+            return self._json({"error": "bad audio"}, 400)
+        if audio == "stems" and not (isinstance(stems, list) and stems and all(s in STEM_NAMES for s in stems)):
+            return self._json({"error": "bad stems"}, 400)
+        root = LIBRARIES[key]["root"]
+        if not any((root / song / "transcription").glob("*.mid")):
+            return self._json({"error": "no transcription yet"}, 409)
+        if not GP_LOCK.acquire(timeout=60):
+            return self._json({"error": "busy"}, 503)
+        fd, tmp = tempfile.mkstemp(prefix="openmusic-", suffix=".gp")
+        os.close(fd)
+        try:
+            cmd = [sys.executable, str(ROOT / "experiments" / "export_gp.py"), str(root), f"--song={song}",
+                   f"--audio={audio}", f"--out={tmp}"] + ([f"--stems={','.join(stems)}"] if audio == "stems" else [])
+            env = dict(os.environ, PYTHONIOENCODING="utf-8")
+            done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace", env=env, timeout=300)
+            data = Path(tmp).read_bytes() if done.returncode == 0 else b""
+            if not data:
+                last = [line for line in (done.stderr or done.stdout).splitlines() if line.strip()][-1:]
+                return self._json({"error": "export failed", "detail": last[0] if last else ""}, 500)
+        except subprocess.TimeoutExpired:
+            return self._json({"error": "export took too long"}, 500)
+        finally:
+            GP_LOCK.release()
+            Path(tmp).unlink(missing_ok=True)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(song + '.gp')}")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def upload(self, query):
         name = Path(unquote(self.headers.get("X-Filename") or "")).name.lstrip("_.-").strip()
@@ -551,6 +599,8 @@ th{font-size:12px;color:var(--muted);font-weight:600}
 .song{font-weight:600}.song,.detail{overflow-wrap:anywhere}
 .chip{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;background:var(--chip);white-space:nowrap}
 .chip.ok{color:var(--ok)}.chip.run{color:var(--accent)}.chip.queued{color:var(--warn)}.chip.bad{color:var(--bad)}.chip.todo{color:var(--muted)}
+#gpdlg{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:18px;max-width:min(520px,calc(100vw - 32px));box-shadow:0 10px 40px rgba(0,0,0,.25)}
+#gpdlg::backdrop{background:rgba(0,0,0,.35)}#gpdlg .opt{display:block;margin:10px 0 4px}#gp-stems{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0 4px 24px}
 button.act,a.act{display:inline-block;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit;font-size:13px;margin:2px 4px 2px 0;white-space:nowrap;text-decoration:none}
 .primary{background:var(--accent)!important;border-color:var(--accent)!important;color:var(--on-accent)!important}
 button:disabled{opacity:.45;cursor:default}
@@ -575,6 +625,11 @@ pre{background:var(--chip);border-radius:8px;padding:10px;max-height:260px;overf
 <section class=card><h2 data-t=lib></h2><div class=tabs id=tabs></div><p class="small muted" id=libnote></p><p class="small warn" id=libwarn hidden></p><p id=batch hidden><button class="act primary" id=batchbtn></button> <span class="small muted" id=batchnote></span></p>
  <table><thead><tr><th data-t=c_song></th><th data-t=c_split></th><th data-t=c_an></th><th data-t=c_midi></th><th data-t=c_player></th><th></th></tr></thead><tbody id=rows></tbody></table></section>
 <section class=card id=jobcard><h2 data-t=jobs></h2><div id=jobs class=small></div></section>
+<dialog id=gpdlg><h2 id=gp-h></h2><p class="small muted" id=gp-hint></p>
+<label class=opt><input type=radio name=gp-audio value=stems> <span id=gp-l-stems></span></label><div id=gp-stems></div>
+<label class=opt><input type=radio name=gp-audio value=original> <span id=gp-l-original></span></label>
+<label class=opt><input type=radio name=gp-audio value=none> <span id=gp-l-none></span></label>
+<p class=small id=gp-status></p><div><button class="act primary" id=gp-go></button><button class=act id=gp-cancel></button></div></dialog>
 <p class="small muted" data-t=foot></p>
 </main>
 <script>
@@ -590,7 +645,11 @@ batch:'全部一键处理（{n} 首没做完）',batchnote:'把还没做完的�
 gpuwarn:'这台电脑没有 NVIDIA 显卡：RoFormer 会很慢，还可能占用 6 GB 以上内存让电脑卡住，建议在显卡电脑上跑。仍要继续吗？',
 all:'一键处理',practise:'去练习',redo:'重做',run:'运行',open:'打开',none:'这里还没有歌。先在上面添加一首。',nosrc:'没有原始音频',
 st_ok:'完成',st_todo:'未做',st_run:'进行中',st_queued:'排队中',st_bad:'失败',st_stale:'需更新',
-stems:'{n} 轨',midi:'{n} 轨：',gp:'下载 Guitar Pro',gp_title:'整首歌的 Guitar Pro 谱（.gp，Guitar Pro 7、8 用）：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名',model_unknown:'模型未知',conf:'把握 {p}%',idle:'现在没有任务在跑。',cancel:'停止',queue:'排队中：',recent:'最近：',
+stems:'{n} 轨',midi:'{n} 轨：',gp:'下载 Guitar Pro',gp_choose:'⬇ Guitar Pro…',gp_choose_title:'选好谱里垫的音频轨，再生成、下载 Guitar Pro 谱',
+gp_h:'下载 Guitar Pro 谱',gp_hint:'谱里可以垫一条音频轨。贝斯、鼓、人声旋律的 MIDI 扒得准，由 Guitar Pro 演奏；吉他要靠耳朵听，所以默认垫人声、吉他和其他。',
+gp_stems:'分轨混音：',gp_original:'原曲（整首录音）',gp_none:'不放音频（文件最小）',gp_go:'生成并下载',gp_cancel:'取消',
+gp_busy:'正在生成，需要几秒…',gp_done:'已下载：{name}',gp_err:'生成失败：{msg}',gp_pick:'至少勾一轨，或者选「不放音频」。',
+gp_label_original:'原曲',gp_label_none:'无音频',gp_title:'整首歌的 Guitar Pro 谱（.gp，Guitar Pro 7、8 用）：所有分轨在一个文件里，吉他、贝斯带六线谱，上面有和弦名',model_unknown:'模型未知',conf:'把握 {p}%',idle:'现在没有任务在跑。',cancel:'停止',queue:'排队中：',recent:'最近：',
 step_split:'分轨',step_analyze:'分析',step_transcribe:'扒谱',step_gp:'生成 Guitar Pro 谱',step_player:'生成播放器',elapsed:'已用 {s} 秒',
 j_done:'完成',j_failed:'失败',j_cancelled:'已停止',j_skipped:'跳过（前一步没成功）',showlog:'查看日志',
 up_busy:'正在添加：{n} …',up_ok:'已添加：{n}',up_exists:'{n} 已经在 songs/ 里了，要覆盖吗？',up_bad:'不支持这个文件类型：{n}（可以用 mp3、wav、flac、m4a、aac、ogg）',
@@ -607,7 +666,11 @@ batch:'Process all ({n} not finished)',batchnote:'Queues every song that is not 
 gpuwarn:'This computer has no NVIDIA GPU: RoFormer will be slow and may use over 6 GB of memory and freeze the computer. Running it on a GPU machine is recommended. Continue anyway?',
 all:'Process all',practise:'Practise',redo:'Redo',run:'Run',open:'Open',none:'No songs here yet. Add one above first.',nosrc:'no source audio',
 st_ok:'done',st_todo:'not yet',st_run:'running',st_queued:'queued',st_bad:'failed',st_stale:'needs update',
-stems:'{n} stems',midi:'{n} stems: ',gp:'Download Guitar Pro',gp_title:'The whole song as one Guitar Pro file (.gp, for Guitar Pro 7 and 8): every stem a track, tab for guitar and bass, chord names above',model_unknown:'model unknown',conf:'{p}% sure',idle:'No job is running.',cancel:'Stop',queue:'Queued: ',recent:'Recent:',
+stems:'{n} stems',midi:'{n} stems: ',gp:'Download Guitar Pro',gp_choose:'⬇ Guitar Pro…',gp_choose_title:'Choose the audio track for the Guitar Pro file, then build and download it',
+gp_h:'Download a Guitar Pro file',gp_hint:'The file can carry an audio track. The bass, drums and vocal-melody MIDI are accurate, so Guitar Pro plays them; the guitar has to be worked out by ear, so the default track is vocals, guitar and other.',
+gp_stems:'Mix of stems:',gp_original:'The original song (the whole recording)',gp_none:'No audio (smallest file)',gp_go:'Build and download',gp_cancel:'Cancel',
+gp_busy:'Building, this takes a few seconds…',gp_done:'Downloaded: {name}',gp_err:'Could not build it: {msg}',gp_pick:'Tick at least one stem, or choose “No audio”.',
+gp_label_original:'original',gp_label_none:'no audio',gp_title:'The whole song as one Guitar Pro file (.gp, for Guitar Pro 7 and 8): every stem a track, tab for guitar and bass, chord names above',model_unknown:'model unknown',conf:'{p}% sure',idle:'No job is running.',cancel:'Stop',queue:'Queued: ',recent:'Recent:',
 step_split:'split',step_analyze:'analyze',step_transcribe:'transcribe',step_gp:'Guitar Pro export',step_player:'build player',elapsed:'{s} s so far',
 j_done:'done',j_failed:'failed',j_cancelled:'stopped',j_skipped:'skipped (previous step failed)',showlog:'show log',
 up_busy:'Adding {n} …',up_ok:'Added: {n}',up_exists:'{n} is already in songs/. Overwrite it?',up_bad:'Unsupported file type: {n} (use mp3, wav, flac, m4a, aac or ogg)',
@@ -645,7 +708,7 @@ function render(){if(!S)return;const L=S.libraries;const tabs=document.getElemen
   const btn=(step,label,en)=>`<button class=act data-song="${esc(s.name)}" data-step=${step} ${en&&!busy?'':'disabled'}>${label}</button>`;
   const allDone=d.split&&d.analyze&&d.transcribe&&d.gp&&d.player;
   const midi=(s.midi.length?t('midi',{n:s.midi.length})+s.midi.map(m=>`<a href="${esc(s.midi_urls[m])}" download>${esc(STEM[lang][m]||m)}</a>`).join(lang==='zh'?'、':', '):'')
-   +(s.gp_url?`<div><a href="${esc(s.gp_url)}" download title="${esc(t('gp_title'))}">⬇ ${t('gp')}</a></div>`:'');
+   +(s.midi.length?`<div><button class=act data-gp="${esc(s.name)}" title="${esc(t('gp_choose_title'))}">${t('gp_choose')}</button></div>`:'');
   const gpRun=lastRun(s.name,'gp'),trRun=lastRun(s.name,'transcribe');
   const midiStep=jobFor(s.name,'transcribe')?'transcribe':jobFor(s.name,'gp')||(gpRun&&gpRun.status==='failed'&&!(trRun&&trRun.status==='failed'))?'gp':'transcribe';
   const last=allDone&&!busy?`<a class="act primary" href="${playerHref(s)}">${t('practise')} →</a>`
@@ -657,6 +720,7 @@ function render(){if(!S)return;const L=S.libraries;const tabs=document.getElemen
   <td data-h="${t('c_player')}">${chip(s.name,'player',d.player,s.player==='stale')}<div class=detail></div>${s.player_url?`<a class="act" href="${playerHref(s)}">${t('open')} →</a>`:''}</td>
   <td>${last}</td></tr>`}).join('');
  rows.querySelectorAll('button[data-song]').forEach(b=>b.onclick=()=>run(b.dataset.song,b.dataset.step,!!b.dataset.all));
+ rows.querySelectorAll('button[data-gp]').forEach(b=>b.onclick=()=>openGp(b.dataset.gp));
  // every song in this library that can still be taken further and is not already queued or running
  const todo=cur.songs.filter(s=>{const d=s.done;return !(d.split&&d.analyze&&d.transcribe&&d.gp&&d.player)&&(d.split||(cur.split&&s.source))
   &&!active().some(x=>x.library===lib&&x.song===s.name)});
@@ -664,6 +728,30 @@ function render(){if(!S)return;const L=S.libraries;const tabs=document.getElemen
  if(todo.length){const b=document.getElementById('batchbtn');b.textContent=t('batch',{n:todo.length});document.getElementById('batchnote').textContent=t('batchnote');
   b.onclick=()=>runAll(todo.map(s=>s.name))}
  renderJobs()}
+// Guitar Pro download with a chosen audio track: built on the spot by POST /api/gp, nothing is stored
+const GP_KEY='openmusic-gp-audio',GP_DEFAULT={audio:'stems',stems:['vocals','guitar','other']};let gpSong=null;
+function openGp(name){const s=S.libraries[lib].songs.find(x=>x.name===name);if(!s)return;gpSong={lib,name,stems:s.stems};
+ let pick=GP_DEFAULT;try{pick=Object.assign({},GP_DEFAULT,JSON.parse(localStorage.getItem(GP_KEY))||{})}catch(_){}
+ for(const id of ['gp-h','gp-hint','gp-go','gp-cancel'])document.getElementById(id).textContent=t(id.replace('-','_'));
+ for(const k of ['stems','original','none'])document.getElementById('gp-l-'+k).textContent=t('gp_'+k);
+ document.getElementById('gp-status').textContent='';
+ document.getElementById('gp-stems').innerHTML=s.stems.map(n=>`<label><input type=checkbox value="${esc(n)}" ${pick.stems.includes(n)?'checked':''}> ${esc(STEM[lang][n]||n)}</label>`).join('');
+ document.getElementById('gp-stems').querySelectorAll('input').forEach(c=>c.onchange=()=>{document.querySelector('#gpdlg input[value=stems]').checked=true});
+ document.querySelectorAll('#gpdlg input[name=gp-audio]').forEach(r=>r.checked=r.value===pick.audio);
+ document.getElementById('gp-go').disabled=false;document.getElementById('gpdlg').showModal()}
+document.getElementById('gp-cancel').onclick=()=>document.getElementById('gpdlg').close();
+document.getElementById('gp-go').onclick=async()=>{const st=document.getElementById('gp-status'),go=document.getElementById('gp-go');
+ const audio=(document.querySelector('#gpdlg input[name=gp-audio]:checked')||{}).value||'stems';
+ const chosen=[...document.querySelectorAll('#gp-stems input:checked')].map(c=>c.value);
+ if(audio==='stems'&&!chosen.length){st.textContent=t('gp_pick');return}
+ try{localStorage.setItem(GP_KEY,JSON.stringify({audio,stems:chosen.length?chosen:GP_DEFAULT.stems}))}catch(_){}
+ const label=audio==='original'?t('gp_label_original'):audio==='none'?t('gp_label_none'):chosen.map(n=>STEM[lang][n]||n).join(' ');
+ const name=gpSong.name+' ('+label.replace(/[\\/:*?"<>|]/g,'-')+').gp';st.textContent=t('gp_busy');go.disabled=true;
+ try{const r=await post('/api/gp',JSON.stringify({library:gpSong.lib,song:gpSong.name,audio,stems:chosen}));
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||e.error||r.status)}
+  const url=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);st.textContent=t('gp_done',{name});setTimeout(()=>document.getElementById('gpdlg').close(),1200)}
+ catch(e){st.textContent=t('gp_err',{msg:e.message||String(e)})}finally{go.disabled=false}};
 async function runAll(names){
  if(lib==='roformer_sw'&&S.hardware.gpu!=='cuda'&&!confirm(t('gpuwarn')))return;
  try{for(const song of names){const r=await post('/api/run',JSON.stringify({library:lib,song,steps:null}));if(!r.ok){alert((await r.json()).error);break}}

@@ -19,8 +19,11 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   import it): transcribe.py --drums auto uses its `adtof` CLI as a subprocess when installed (better on real
   recordings: hi-hat 0.79, cymbals 0.83); drums.notes.json "backend" says which.
 - Guitar Pro: `export_gp.py` + `gp7.py` (alphaTab 1.8.4 in mini-racer) write transcription/<song>.gp in GP8's format:
-  the guitar track starts muted, and the original song (songs/<file>, byte for byte) is an audio track with a
-  sync point per bar, laid out as GP8 stores it (Content/Assets/<id>.mp3). Checked in GP8 on the user's Mac.
+  the guitar track starts muted, and an audio track with a sync point per bar, laid out as GP8 stores it
+  (Content/Assets/<id>.mp3), carries by default a mix of vocals + guitar + other (the user's choice: bass, drums,
+  vocal melody MIDI are accurate, guitar is learnt by ear). "⬇ Guitar Pro…" in the player and workbench lets
+  the user pick stems / the original song / none; POST /api/gp runs export_gp.py --out to a temp file and streams
+  it (nothing stored). Checked in GP8 on the user's Mac.
   If "no sound" is reported, check the audio output first (it was AirPods once), not the file.
 - Player usability pass (eec5571): loops can be cleared (✕, Esc, double-click), Set A/B keys, a sticky transport
   with a loop readout, trainer progress and restore, a restored-settings notice and 本曲恢复默认; checked by the

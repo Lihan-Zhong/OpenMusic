@@ -40,7 +40,7 @@ runs at a time so the computer stays responsive:
    model split it.
 3. **Analyze**: tempo (beats, bars), key, chords.
 4. **MIDI**: every stem becomes notes you can import into Guitar Pro / MuseScore (the drums too, as a drum part),
-   plus one Guitar Pro file of the whole song that opens directly ("Download Guitar Pro"; see "Guitar Pro file" below).
+   plus one Guitar Pro file of the whole song ("⬇ Guitar Pro…" lets you choose its audio track; see "Guitar Pro file" below).
 5. **Practise**: "Open" goes to the song's practice player; the top left of the player leads back to the workbench.
 
 The "Collected library" tab holds songs that are already split (`outputs/mp3/`) and starts at step 3. The
@@ -101,8 +101,9 @@ Then open http://localhost:8765/outputs/roformer_sw_full/player.html (English: p
 
 After the MIDI step the workbench writes the whole song as a score, `<song>/transcription/<song>.gp` (the
 Guitar Pro 7 and 8 format; Chinese titles show correctly), so there is no need to import the MIDI files one by one
-and tidy them up. "Download Guitar Pro" is in the workbench's MIDI column and in the practice player (below the
-piano roll).
+and tidy them up. "⬇ Guitar Pro…" is in the workbench's MIDI column and in the practice player (below the piano
+roll): choose the audio track for the file, click "Build and download", and a few seconds later it is in the
+browser's downloads; no extra copy is kept in the project.
 
 - **Tracks**: guitar (6 strings, standard tuning, tab + notation), bass (4 strings, tab + notation), the vocal
   melody (notation only); piano and other only when they have enough notes; drums when there is a drum
@@ -125,15 +126,19 @@ piano roll).
   at the same time.
 - **Chords, key, title**: the detected chord names sit above the staff; title, artist, key and tempo are in the
   file's score information.
-- **The song's audio track**: the file carries the original recording (the file in `songs/`, as it is, not
-  re-encoded) as a Guitar Pro 8 audio track, with a sync point at the start of every bar taken from the detected
-  bar lines. Bar N lines up with the same place in the player, and the score plays along with the recording
-  (tried in Guitar Pro 8 on a Mac).
-  Without an original, the stems mixed into an MP3 are used. `--audio vocals` embeds only the vocals stem,
-  `--audio none` no audio. This makes the files bigger: about 5-16 MB for a 2-7 minute song.
+- **The audio track (your choice)**: the file carries a recording as a Guitar Pro 8 audio track. By default it is
+  a mix of the **vocals, guitar and other** stems: the bass, drums and vocal-melody MIDI are accurate, so Guitar
+  Pro plays them, while the guitar has to be worked out by ear, so you hear the real recording. When you download
+  you can instead pick any stems to mix, the whole original song (the file in `songs/`, as it is, not re-encoded),
+  or no audio (the smallest file, about 0.1 MB); your last choice is remembered. A sync point at the start of
+  every bar, taken from the detected bar lines, puts bar N at the same place as in the player, and the score
+  plays along with the recording (tried in Guitar Pro 8 on a Mac). A stems mix is kept below −1 dBFS so it never
+  clips. Command line: `export_gp.py <library> --song <song> --audio stems --stems vocals,guitar,other` (the
+  default), `--audio original` for the song, `--audio none` for none; `--out <file>` writes elsewhere and leaves
+  the song folder alone.
 - **Guitar muted**: the guitar transcription is busy, so its track starts muted (the tab shows as usual); bass,
   drums and vocals play. Unmute it in Guitar Pro's mixer.
-- **No sound from the recording?** First import any audio into Guitar Pro 8 yourself: usually it is the audio
+- **No sound from the audio track?** First import any audio into Guitar Pro 8 yourself: usually it is the audio
   output. With Bluetooth headphones (AirPods) Guitar Pro 8 played nothing at all here, and the computer's
   speakers worked. The red headphones on the audio track's row are Solo: while it is on, the other tracks are
   silent.
