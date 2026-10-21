@@ -112,7 +112,10 @@ browser's downloads; no extra copy is kept in the project.
   transcription (`transcription/drums.mid`).
 - **Bars**: the same beats and bar lines as the MIDI and the player, with each bar's time signature from its
   detected number of beats. When the song starts with less than a full bar (a pickup), that bar is bar 1 in
-  Guitar Pro and bar 0 in the player, so later bar numbers are one higher than in the player. Guitar Pro keeps
+  Guitar Pro and bar 0 in the player, so later bar numbers are one higher than in the player. If the first beat
+  comes only a few hundredths of a second in (the song really starts on a downbeat), the score starts at that
+  beat and the audio track skips those ms; otherwise Guitar Pro would play the sliver as a whole beat and the
+  MIDI tracks would run a beat behind the recording. Guitar Pro keeps
   one whole-number tempo at a time: the score follows the per-bar tempo and marks a new tempo when it moves by
   more than 3 %. With the song's audio track in the file, its sync points set the playback tempo, so the score
   follows the recording.

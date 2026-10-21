@@ -163,10 +163,12 @@ ALPHATAB_ASSET = "Content/Assets/backing-track"   # where alphaTab puts the audi
 ASSETS = "Content/Assets/"                        # where Guitar Pro 8 does: Content/Assets/<id>.<extension>
 
 
-def to_gp(gp5, audio=None, sync=(), audio_name="audio.mp3"):
+def to_gp(gp5, audio=None, sync=(), audio_name="audio.mp3", padding=0):
     """Guitar Pro 5 bytes (text in UTF-8) -> .gp bytes; with audio (a file's bytes, any format Guitar Pro 8
     reads; audio_name is its file name, whose extension tells Guitar Pro the format), that file as the audio
-    track, placed by sync = [(bar index, ms into the audio where it starts)]."""
+    track, placed by sync = [(bar index, ms into the audio where it starts)]. padding = Guitar Pro's frame
+    padding in 44.1 kHz frames: negative skips that much of the audio's start, and the sync points then count
+    from there (Guitar Pro 8's own canon-audio-track.gp has -72900)."""
     data = bytes.fromhex(engine().call("openmusic.toGp", gp5.hex(), bool(audio), [list(p) for p in sync]))
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         entries = [(info, z.read(info)) for info in z.infolist() if info.filename != ALPHATAB_ASSET]
@@ -178,7 +180,7 @@ def to_gp(gp5, audio=None, sync=(), audio_name="audio.mp3"):
     file_info.compress_type = zipfile.ZIP_DEFLATED   # as Guitar Pro 8 stores it; folder and meta.json stored
     entries += [(zipfile.ZipInfo(ASSETS), b""), (file_info, audio),
                 (zipfile.ZipInfo("meta.json"), b'{\n    "hasAudio": true,\n    "version": "1.0.0"\n}\n')]
-    return rezip(entries, lambda gpif: gp8_audio(fix_drums(gpif), asset, asset_id, audio_name))
+    return rezip(entries, lambda gpif: gp8_audio(fix_drums(gpif), asset, asset_id, audio_name, padding))
 
 
 def audio_entry(z):
@@ -190,7 +192,7 @@ def cdata(text):
     return "<![CDATA[" + text.replace("]]>", "]]]]><![CDATA[>") + "]]>"
 
 
-def gp8_audio(gpif, asset, asset_id, audio_name):
+def gp8_audio(gpif, asset, asset_id, audio_name, padding=0):
     """score.gpif with the audio track's parts laid out as Guitar Pro 8 saves them (see the module docstring)."""
     def element(name, text):
         m = re.search(rf"<{name}>(.*?)</{name}>|<{name}\s*/>", text, re.S)
@@ -203,7 +205,8 @@ def gp8_audio(gpif, asset, asset_id, audio_name):
         f"<ChannelStrip>{element('Parameters', strip)}</ChannelStrip>" + \
         "".join(element(n, track) for n in ("Enabled", "Source", "AssetId")) + \
         "".join(element(n, strip) for n in ("YouTubeVideoUrl", "Filter", "FramesPerPixel")) + \
-        "".join(element(n, track) for n in ("FramePadding", "Semitones", "Cents")) + "</BackingTrack>"
+        f"<FramePadding>{int(padding)}</FramePadding>" + \
+        "".join(element(n, track) for n in ("Semitones", "Cents")) + "</BackingTrack>"
     gpif = gpif.replace(f"<BackingTrack>{track}</BackingTrack>", backing)
     asset_id_attr = re.search(r'<Asset id="([^"]*)"', gpif).group(1)
     gpif = re.sub(r"<Assets>.*?</Assets>", "", gpif, flags=re.S)

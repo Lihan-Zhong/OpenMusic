@@ -80,6 +80,8 @@ OVERTONES = (12, 19, 24, 28, 31)   # harmonics 2-6, in semitones above the note
 OVERTONE_RATIO = 0.8               # an overtone ghost is at most this loud relative to the note under it
 MIN_TRACK_NOTES = 64               # piano and other are only written with this many notes left
 TEMPO_STEP = 0.03                  # the written tempo changes when the bar tempo moves more than 3 %
+SQUEEZED_PICKUP = 0.5              # a lead-in lasting less than this part of its beats is left out (song_bars)
+FRAME_RATE = 44100                 # Guitar Pro counts audio positions (frame padding, sync points) at 44.1 kHz
 TEMPO_SMOOTH_BARS = 5              # bar tempos are smoothed with a running median over this many bars
 DROP_D_SHARE = 0.01                # drop-D tuning when this share (and >= DROP_D_MIN) of notes need it
 DROP_D_MIN = 8
@@ -534,16 +536,32 @@ def read_notes(song_dir):
 
 
 def song_bars(analysis, stems):
-    """(knots, tempo note, bars): the MIDI tempo map, and bars covering the song and every note in stems."""
+    """(knots, tempo note, bars, skip_s): the MIDI tempo map, the bars covering the song and every note in
+    stems, and the seconds of audio before the score's first bar that the audio track skips.
+
+    transcribe.tempo_map puts MIDI beat 0 at 0 s, so a song whose first beat comes a few ms in gets a lead-in
+    beat squeezed into those ms (one beat in 42 ms, 1429 BPM, for 草东没有派对 - 大风吹). A MIDI file plays that
+    as written, but a Guitar Pro bar has one ordinary tempo: the pickup bar lasted a whole beat at the song's
+    tempo, and every MIDI track then played a beat behind the audio track. So when the lead-in lasts less than
+    SQUEEZED_PICKUP of its beats, the score starts at the first beat and the audio track skips what comes
+    before it (Guitar Pro's frame padding)."""
     knots, signatures, tempo_note = tempo_map(analysis)
     duration = float((analysis or {}).get("duration_s") or 0)
     last_note = max((n[1] for notes, _ in stems.values() for n in notes), default=0.0)
-    return knots, tempo_note, bar_list(signatures, float(seconds_to_beats(max(duration, last_note), knots)))
+    bars = bar_list(signatures, float(seconds_to_beats(max(duration, last_note), knots)))
+    if len(knots) > 2 and knots[1][1] > 0:          # MIDI beats 0..lead come before the first analysis beat
+        (first, lead), (t2, b2) = knots[1], knots[2]
+        lead = int(round(lead))                      # bars count whole beats
+        if first < SQUEEZED_PICKUP * lead * (t2 - first) / (b2 - lead):
+            knots = [(t, b - lead) for t, b in knots[1:]]
+            bars = [(max(b - lead, 0), n + min(b - lead, 0)) for b, n in bars if b + n > lead]
+            return knots, tempo_note + f"; the {first * 1000:.0f} ms before the first beat are left out", bars, first
+    return knots, tempo_note, bars, 0.0
 
 
 def build_song(song_dir, analysis, stems):
     """(gp.Song, report): every track laid out on the analysis beat grid. report has per-track counts."""
-    knots, tempo_note, bars = song_bars(analysis, stems)
+    knots, tempo_note, bars, skip = song_bars(analysis, stems)
     total = (bars[-1][0] + bars[-1][1]) * TICKS
     tempos = bar_tempos(bars, knots)
     key = key_signature((analysis or {}).get("key"))
@@ -568,11 +586,12 @@ def build_song(song_dir, analysis, stems):
                                                                               denominator=gp.Duration(4))))
         start += n * TICKS
 
-    report = {"bars": len(bars), "tempo": tempos[0], "tempo_changes": len(tempos) - 1, "tracks": {},
+    report = {"bars": len(bars), "tempo": tempos[0], "tempo_changes": len(tempos) - 1, "tracks": {}, "skip_s": skip,
               "key": key_text, "chords": len(chords), "title": title, "artist": artist,
               "signatures": [n for _, n in bars],
-              # where each bar starts in the audio, for the audio track's sync points: the song's own time
-              "sync": [(i, round(1000 * float(beats_to_seconds(b, knots)), 3)) for i, (b, _) in enumerate(bars)]}
+              # where each bar starts in the audio, for the audio track's sync points: the song's own time,
+              # after the skipped start
+              "sync": [(i, round(1000 * (float(beats_to_seconds(b, knots)) - skip), 3)) for i, (b, _) in enumerate(bars)]}
     notice = [f"Bars and beats: {tempo_note}.",
               "Rhythm on a grid of 16ths and 8th-note triplets; ghost and overtone notes dropped."]
     for stem in [s for s in ORDER if s in stems]:
@@ -626,7 +645,8 @@ def check(song, report, audio=None):
     if muted != want_muted:
         problems.append(f"muted tracks {muted}, expected {want_muted}")
     if audio:
-        sync = [(bar, round(ms, 3)) for bar, occurrence, position, ms in song["sync"]]
+        # alphaTab reads a sync point as its position in the audio file: our offset plus the skipped start
+        sync = [(bar, round(ms - 1000 * report.get("skip_s", 0.0), 3)) for bar, occurrence, position, ms in song["sync"]]
         if song["audio_bytes"] != len(audio) or not song["backing_track"]:
             problems.append(f"audio track of {song['audio_bytes']} bytes, expected {len(audio)}")
         if len(sync) != len(report["sync"]) or any(a != b or abs(x - y) > 0.5
@@ -743,7 +763,8 @@ def export_song(song_dir, force=False, audio_mode="stems", audio_stems=AUDIO_STE
     audio, audio_name, audio_note, _ = backing_audio(song_dir, audio_mode, audio_stems)
     gp5 = io.BytesIO()
     gp.write(song, gp5, version=(5, 1, 0), encoding=GP5_TEXT)
-    data = gp7.to_gp(gp5.getvalue(), audio, report["sync"] if audio else (), audio_name)
+    data = gp7.to_gp(gp5.getvalue(), audio, report["sync"] if audio else (), audio_name,
+                     padding=-round(report["skip_s"] * FRAME_RATE))
     problems = check(gp7.dump(data), report, audio)
     if problems:
         raise SystemExit(f"export_gp.py: {song_dir.name}: the .gp does not read back right: {'; '.join(problems)}")

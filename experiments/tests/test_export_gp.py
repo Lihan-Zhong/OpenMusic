@@ -289,6 +289,18 @@ def check_units():
     strings, drop_d = export_gp.tuning(bass[1:3], export_gp.TRACKS["bass"])
     expect(not drop_d, "two bass notes are no reason for drop D")
 
+    # a first beat a few ms in: the squeezed lead-in beat is left out of the score (草东没有派对 - 大风吹)
+    def bars_for(first):
+        beats = [first + 0.5 * k for k in range(40)]
+        return export_gp.song_bars({"duration_s": 20.0, "tempo": {"bpm": 120.0, "beats": beats,
+                                                                  "downbeats": beats[::4], "beats_per_bar": 4}}, {})
+    knots, _, bars, skip = bars_for(0.042)
+    expect(skip == 0.042 and bars[0] == (0, 4) and knots[0] == (0.042, 0.0)
+           and abs(float(export_gp.beats_to_seconds(4, knots)) - 2.042) < 1e-9,
+           f"squeezed lead-in: skip {skip}, bars {bars[:2]}, knots {knots[:2]}")
+    knots, _, bars, skip = bars_for(0.4)                    # a real pickup beat (0.4 of 0.5 s) stays
+    expect(skip == 0.0 and bars[0] == (0, 1) and bars[1] == (1, 4), f"real pickup: skip {skip}, bars {bars[:2]}")
+
 
 def check_song():
     print(f"synthetic song: {TEST_ROOT / SONG}")
@@ -436,7 +448,7 @@ def check_command_line(song_dir):
     stale.unlink(missing_ok=True)
 
 
-def check_gpif(path, song):
+def check_gpif(path, song, skip=0.0):
     """The .gp read with Python's own zip and XML parsers: version, title, bars and tracks as alphaTab read
     them, chord names without diagrams, tempo changes as steps with bar 1 marked once."""
     name = path.parent.parent.name
@@ -461,7 +473,7 @@ def check_gpif(path, song):
         # laid out as in a .gp Guitar Pro 8 saved itself (alphaTab's test file guitarpro8/canon-audio-track.gp)
         backing = root.find("BackingTrack")
         expect(backing is not None and backing.findtext("Enabled") == "true" and backing.findtext("Source") == "Local"
-               and backing.findtext("FramePadding") == "0", f"{name}: gpif audio track")
+               and backing.findtext("FramePadding") == str(-round(skip * export_gp.FRAME_RATE)), f"{name}: gpif audio track")
         order = ["IconId", "Color", "Name", "ShortName", "PlaybackState", "ChannelStrip", "Enabled", "Source", "AssetId",
                  "YouTubeVideoUrl", "Filter", "FramesPerPixel", "FramePadding", "Semitones", "Cents"]
         expect([c.tag for c in backing] == order and [c.tag for c in backing.find("ChannelStrip")] == ["Parameters"],
@@ -477,7 +489,7 @@ def check_gpif(path, song):
         expect(gp7.ASSETS in entries and meta.get("hasAudio") is True, f"{name}: Content/Assets/ entry and meta.json")
         frames = [(int(a.findtext("Value/BarIndex")), int(a.findtext("Value/FrameOffset")))
                   for a in root.findall("MasterTrack/Automations/Automation") if a.findtext("Type") == "SyncPoint"]
-        want = [(bar, round(ms / 1000 * 44100)) for bar, _, _, ms in song["sync"]]
+        want = [(bar, round((ms / 1000 - skip) * 44100)) for bar, _, _, ms in song["sync"]]   # counted after the padding
         expect(len(frames) == len(want) and all(a == b and abs(x - y) <= 1 for (a, x), (b, y) in zip(frames, want)),
                f"{name}: gpif sync points (samples at 44.1 kHz) {frames[:3]}, expected {want[:3]}")
 
@@ -492,15 +504,14 @@ def check_songs(stems_root):
         expect((song["title"], song["artist"]) == export_gp.split_name(song_dir.name),
                f"{song_dir.name}: title / artist {song['title']!r} / {song['artist']!r}")
         expect(not path.with_suffix(".gp5").exists(), f"{song_dir.name}: a .gp5 is left over")
-        check_gpif(path, song)
-        _, _, bars = export_gp.song_bars(read_analysis(song_dir), export_gp.read_notes(song_dir))
+        knots, _, bars, skip = export_gp.song_bars(read_analysis(song_dir), export_gp.read_notes(song_dir))
+        check_gpif(path, song, skip)
         expect([b["numerator"] for b in song["bars"]] == [n for _, n in bars], f"{song_dir.name}: bars differ from the tempo map")
         has_drums = any(t["percussion"] for t in song["tracks"])
         expect(has_drums == (song_dir / "transcription" / "drums.mid").is_file(), f"{song_dir.name}: drum track")
         guitar = ["Guitar"] if any(t["name"] == "Guitar" for t in song["tracks"]) else []   # a song may have no guitar notes
         expect([t["name"] for t in song["tracks"] if t["mute"]] == guitar, f"{song_dir.name}: only the guitar muted")
-        knots, _, bars = export_gp.song_bars(read_analysis(song_dir), export_gp.read_notes(song_dir))
-        starts = [1000 * float(export_gp.beats_to_seconds(b, knots)) for b, _ in bars]
+        starts = [1000 * float(export_gp.beats_to_seconds(b, knots)) for b, _ in bars]   # read back: in the audio file
         expect(song["backing_track"] and len(song["sync"]) == len(bars)
                and all(abs(ms - s) < 0.5 for (_, _, _, ms), s in zip(song["sync"], starts)),
                f"{song_dir.name}: audio track with a sync point at every bar start")
