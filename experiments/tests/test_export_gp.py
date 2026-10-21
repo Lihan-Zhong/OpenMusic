@@ -8,27 +8,34 @@ is an analysis.json at a steady 120 BPM with a 2-beat pickup, 4/4 bars and one 3
 notes.json files with timing jitter (+-20 ms): guitar open chords (E, Am, C, G), an F barre chord, an 8th-note
 run high on the neck, 16ths, an 8th-note triplet, a power chord, and ghost notes (soft, an overtone, one out of
 range); a bass line; a vocal melody; an arpeggio on "other"; a few notes on "piano" (too few: skipped); and a
-drums.mid; and an "original" recording (a click per beat in songs/ of the test folder) and two short stems. The .gp
-is read back with alphaTab (gp7.dump) and must have the Chinese title, every note on its beat with its pitch, the
-ghosts gone, the chord shapes a guitarist would use, no fretted stretch wider than the track allows, the triplet
-written as one, the drums on their kit pieces and never tied, the chord names on their beats, only the guitar
-muted, and the recording as its audio track, byte for byte, with a sync point at the start of every bar. Its
-score.gpif is also parsed with Python's own XML parser (title, bars, tracks, chord names without diagrams, tempo
-changes as steps, the audio track, sync points in samples, muted tracks). The --audio choices are tried too:
-vocals (the vocals stem as it is), the stems mixed when there is no original, and none. A few small cases test
-the rhythm grid, the note values and the clean-up on their own. Exits with status 1 on any failure.
+drums.mid; and an "original" recording (a click per beat in songs/ of the test folder) and five short stems, each
+a tone of its own (vocals 440 Hz, guitar 660, other 990, bass 110, drums 1760). The .gp is read back with alphaTab
+(gp7.dump) and must have the Chinese title, every note on its beat with its pitch, the ghosts gone, the chord
+shapes a guitarist would use, no fretted stretch wider than the track allows, the triplet written as one, the
+drums on their kit pieces and never tied, the chord names on their beats, only the guitar muted, and as its
+audio track the default mix (vocals + guitar + other, so their tones and not bass or drums, scaled to about
+-1 dBFS rather than clipping) with a sync point at the start of every bar. Its score.gpif is also parsed with
+Python's own XML parser (title, bars, tracks, chord names without diagrams, tempo changes as steps, the audio
+track, sync points in samples, muted tracks). The other audio choices are tried too: --stems with a subset (a
+lone stem is not boosted), with a stem the song lacks, and with only missing stems (no audio track); --audio
+original (the recording byte for byte, or all stems mixed without it) and none. The command line is run as the
+workbench runs it: --out writes the file elsewhere and leaves the song folder exactly as it was, and errors give
+a non-zero exit code and one line on stderr. A few small cases test the rhythm grid, the note values and the
+clean-up on their own. Exits with status 1 on any failure.
 
 --songs checks every <song>/transcription/<song>.gp under a stems folder: it reads back with the song's real
 title, has the bars and time signatures of the song's tempo map (so bar N matches the MIDI and the player), bars
 that add up, notes on distinct strings within the track's frets and hand span, a drum track exactly when
-drums.mid exists, only the guitar muted, an audio track (the original from songs/ byte for byte, when it is
-there) with a sync point on every bar start, and no .gp5 left next to it.
+drums.mid exists, only the guitar muted, the default audio track (vocals + guitar + other mixed into an MP3)
+with a sync point on every bar start, and no .gp5 left next to it.
 """
 import argparse
 import io
 import json
 import shutil
+import subprocess
 import sys
+import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -44,6 +51,8 @@ from common import OUTPUTS  # noqa: E402
 from transcribe import read_analysis  # noqa: E402
 
 TEST_ROOT = OUTPUTS / "_export_gp_test"
+STEM_TONES = {"vocals": 440, "guitar": 660, "other": 990, "bass": 110, "drums": 1760}   # Hz, one per stem
+STEM_LEVEL = 0.45                  # each stem's peak: vocals + guitar + other would sum to 1.35
 SONG = "Test Band - 测试歌"
 RNG = np.random.default_rng(0)
 JITTER_S = 0.02
@@ -184,10 +193,28 @@ def write_song():
     songs = TEST_ROOT / "songs"
     songs.mkdir(parents=True, exist_ok=True)
     sf.write(str(songs / f"{SONG}.wav"), click, sr, subtype="PCM_16")
-    for stem in ("vocals", "bass"):   # two short stems for --audio vocals and the stems mix
-        sf.write(str(song_dir / f"{stem}.wav"), 0.2 * np.sin(2 * np.pi * (220 if stem == "vocals" else 55)
-                                                            * np.arange(sr * 2) / sr), sr, subtype="PCM_16")
+    for stem, hz in STEM_TONES.items():   # 2 s stems, one tone each, loud enough that three of them would clip
+        sf.write(str(song_dir / f"{stem}.wav"), STEM_LEVEL * np.sin(2 * np.pi * hz * np.arange(22050 * 2) / 22050),
+                 22050, subtype="PCM_16")
     return song_dir, parts, drum_want
+
+
+def tones(mp3):
+    """{stem: True if its tone is in the decoded audio}, and the audio's peak."""
+    audio, sr = sf.read(io.BytesIO(mp3), always_2d=True)
+    spectrum = np.abs(np.fft.rfft(audio.mean(axis=1)))
+    freqs = np.fft.rfftfreq(len(audio), 1 / sr)
+    level = {stem: spectrum[np.abs(freqs - hz) < 5].max() for stem, hz in STEM_TONES.items()}
+    return {stem: v > 0.1 * max(level.values()) for stem, v in level.items()}, float(np.abs(audio).max())
+
+
+def embedded(path):
+    """(name of the audio file, its bytes, OriginalFilePath) in a .gp, or (None, b"", None)."""
+    with zipfile.ZipFile(path) as z:
+        name = gp7.audio_entry(z)
+        gpif = z.read("Content/score.gpif").decode()
+        original = ET.fromstring(gpif).findtext("Assets/Asset/OriginalFilePath")
+        return name, z.read(name) if name else b"", original
 
 
 # ---------- reading a .gp back ----------
@@ -323,12 +350,15 @@ def check_song():
     expect(not any(b["chord"] for b in drums["beats"]), "no chord symbols on drums")
     check_gpif(path, song)
 
-    # the audio track: the test's songs/<song>.wav as it is, a sync point at each bar start (0.5 s per beat)
-    original = (TEST_ROOT / "songs" / f"{SONG}.wav").read_bytes()
-    with zipfile.ZipFile(path) as z:
-        name = gp7.audio_entry(z)
-        expect(name and name.endswith(".wav") and z.read(name) == original,
-               f"the audio track should be the original file, byte for byte, with its extension: {name}")
+    # the audio track: by default vocals + guitar + other mixed into an MP3, no louder than about -1 dBFS (their
+    # sum would peak at 1.35), with a sync point at each bar start (0.5 s per beat)
+    name, mix, original = embedded(path)
+    heard, peak = tones(mix)
+    expect(name and name.endswith(".mp3") and original == f"{SONG} (vocals+guitar+other).mp3",
+           f"the default audio track should be the vocals+guitar+other mix: {name}, {original}")
+    expect(heard == {"vocals": True, "guitar": True, "other": True, "bass": False, "drums": False},
+           f"the default mix should hold vocals, guitar and other only: {heard}")
+    expect(0.85 < peak < 0.95, f"the mix should be scaled to about -1 dBFS (0.89), not clip: peak {peak:.3f}")
     starts = [0] + BAR_STARTS
     expect([(b, round(ms, 3)) for b, _, _, ms in song["sync"]] == [(i, 500.0 * s) for i, s in enumerate(starts)],
            f"sync points {song['sync'][:4]}..., expected one per bar start")
@@ -339,27 +369,71 @@ def check_song():
 
 
 def check_audio_modes(song_dir, path):
-    """--audio vocals embeds the vocals stem as it is; with no original the stems are mixed into an MP3;
-    none leaves the audio track out."""
-    export_gp.export_song(song_dir, force=True, audio_mode="vocals")
-    with zipfile.ZipFile(path) as z:
-        expect(z.read(gp7.audio_entry(z)) == (song_dir / "vocals.wav").read_bytes(), "--audio vocals: the vocals stem as it is")
+    """--stems subsets (one stem alone is not boosted; a stem the song lacks is skipped, only missing ones mean no
+    audio track); --audio original (the recording as it is, or all stems mixed without one); none; and the
+    command line as the workbench uses it (--out, one-line errors)."""
+    export_gp.export_song(song_dir, force=True, audio_stems=("bass",))
+    name, mix, original = embedded(path)
+    heard, peak = tones(mix)
+    expect(original == f"{SONG} (bass).mp3" and heard == {**dict.fromkeys(STEM_TONES, False), "bass": True},
+           f"--stems bass: the bass stem only: {original}, {heard}")
+    expect(abs(peak - STEM_LEVEL) < 0.05, f"--stems bass: one stem at {STEM_LEVEL} should not be boosted: peak {peak:.3f}")
+    export_gp.export_song(song_dir, force=True, audio_stems=("vocals", "piano"))
+    name, mix, original = embedded(path)
+    heard, _ = tones(mix)
+    expect(original == f"{SONG} (vocals).mp3" and heard == {**dict.fromkeys(STEM_TONES, False), "vocals": True},
+           f"--stems vocals,piano with no piano stem: vocals only: {original}, {heard}")
+    export_gp.export_song(song_dir, force=True, audio_stems=("piano",))
+    song = gp7.dump(path.read_bytes())
+    expect(not song["backing_track"] and not song["sync"], "--stems piano with no piano stem: no audio track")
+
+    export_gp.export_song(song_dir, force=True, audio_mode="original")
+    name, audio, original = embedded(path)
+    expect(name and name.endswith(".wav") and audio == (TEST_ROOT / "songs" / f"{SONG}.wav").read_bytes(),
+           f"--audio original: the recording, byte for byte, with its extension: {name}")
     export_gp.SONGS = TEST_ROOT / "no songs here"
-    export_gp.export_song(song_dir, force=True)
-    with zipfile.ZipFile(path) as z:
-        expect(gp7.audio_entry(z).endswith(".mp3"), f"the stems mix should be stored as .mp3: {gp7.audio_entry(z)}")
-        mix = z.read(gp7.audio_entry(z))
-    audio, sr = sf.read(io.BytesIO(mix))
-    expect(mix[:3] == b"ID3" or mix[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"), "the stems mix should be an MP3")
-    expect(abs(len(audio) / sr - 2.0) < 0.1, f"the stems mix should be as long as the stems: {len(audio) / sr:.2f} s")
+    export_gp.export_song(song_dir, force=True, audio_mode="original")
+    name, mix, original = embedded(path)
+    heard, peak = tones(mix)
+    expect(name.endswith(".mp3") and all(heard.values()) and peak < 0.95,
+           f"--audio original without a recording: all stems mixed: {original}, {heard}, peak {peak:.3f}")
+    export_gp.SONGS = TEST_ROOT / "songs"
     export_gp.export_song(song_dir, force=True, audio_mode="none")
     song = gp7.dump(path.read_bytes())
     expect(not song["backing_track"] and not song["sync"] and song["audio_bytes"] == 0, "--audio none: no audio track")
     with zipfile.ZipFile(path) as z:
         expect(not any(n.startswith("Content/Assets") for n in z.namelist()) and "meta.json" not in z.namelist(),
                f"--audio none: no audio file and no meta.json: {z.namelist()}")
-    export_gp.SONGS = TEST_ROOT / "songs"
     export_gp.export_song(song_dir, force=True)   # leave the default file for opening by hand
+    check_command_line(song_dir)
+
+
+def check_command_line(song_dir):
+    """export_gp.py as the workbench runs it: --out writes the .gp there (even with an up-to-date .gp in the song
+    folder) and leaves the song folder exactly as it was, a stale .gp5 included; errors exit non-zero with one
+    line on stderr."""
+    stale = song_dir / "transcription" / f"{SONG}.gp5"
+    stale.write_bytes(b"left by an older version")
+    before = {p: (p.stat().st_size, p.stat().st_mtime_ns) for p in song_dir.rglob("*")}
+    script = Path(export_gp.__file__)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "download.gp"
+        run = subprocess.run([sys.executable, str(script), str(TEST_ROOT), "--song", SONG, "--out", str(out)],
+                             capture_output=True, text=True)
+        expect(run.returncode == 0 and out.is_file(), f"--out: exit {run.returncode}, {run.stderr.strip()[-300:]}")
+        if out.is_file():
+            song = gp7.dump(out.read_bytes())
+            _, mix, original = embedded(out)
+            expect(song["title"] == "测试歌" and original == f"{SONG} (vocals+guitar+other).mp3" and tones(mix)[0]["vocals"],
+                   f"--out: the default .gp, with the default mix: {song['title']}, {original}")
+        after = {p: (p.stat().st_size, p.stat().st_mtime_ns) for p in song_dir.rglob("*")}
+        expect(after == before, f"--out must not touch the song folder: {set(after.items()) ^ set(before.items())}")
+        for args, why in ((["--stems", "vocals,bogus"], "an unknown stem"), (["--out", str(out)], "--out without --song"),
+                          (["--song", "no such song", "--out", str(out)], "a song that is not there")):
+            run = subprocess.run([sys.executable, str(script), str(TEST_ROOT), *args], capture_output=True, text=True)
+            expect(run.returncode != 0 and len(run.stderr.strip().splitlines()) == 1,
+                   f"{why}: exit {run.returncode}, stderr {run.stderr!r}")
+    stale.unlink(missing_ok=True)
 
 
 def check_gpif(path, song):
@@ -423,19 +497,20 @@ def check_songs(stems_root):
         expect([b["numerator"] for b in song["bars"]] == [n for _, n in bars], f"{song_dir.name}: bars differ from the tempo map")
         has_drums = any(t["percussion"] for t in song["tracks"])
         expect(has_drums == (song_dir / "transcription" / "drums.mid").is_file(), f"{song_dir.name}: drum track")
-        expect([t["name"] for t in song["tracks"] if t["mute"]] == ["Guitar"], f"{song_dir.name}: only the guitar muted")
+        guitar = ["Guitar"] if any(t["name"] == "Guitar" for t in song["tracks"]) else []   # a song may have no guitar notes
+        expect([t["name"] for t in song["tracks"] if t["mute"]] == guitar, f"{song_dir.name}: only the guitar muted")
         knots, _, bars = export_gp.song_bars(read_analysis(song_dir), export_gp.read_notes(song_dir))
         starts = [1000 * float(export_gp.beats_to_seconds(b, knots)) for b, _ in bars]
         expect(song["backing_track"] and len(song["sync"]) == len(bars)
                and all(abs(ms - s) < 0.5 for (_, _, _, ms), s in zip(song["sync"], starts)),
                f"{song_dir.name}: audio track with a sync point at every bar start")
-        original = export_gp.original_path(song_dir)
-        if original:
-            expect(song["audio_bytes"] == original.stat().st_size, f"{song_dir.name}: audio track is not {original.name}")
+        name, _, original = embedded(path)
+        expect(name.endswith(".mp3") and original == f"{song_dir.name} (vocals+guitar+other).mp3",
+               f"{song_dir.name}: the default audio track should be the vocals+guitar+other mix: {original}")
         print(f"{song_dir.name}: {len(song['bars'])} bars, {song['tempo']} BPM, title {song['title']!r} by "
               f"{song['artist']!r}, {sum(bool(t['tempos']) for t in song['bars'])} tempo marks; audio track "
-              f"{song['audio_bytes'] / 1e6:.1f} MB ({original.name if original else 'stems mix'}), "
-              f"{len(song['sync'])} sync points; .gp {path.stat().st_size / 1e6:.1f} MB")
+              f"{song['audio_bytes'] / 1e6:.1f} MB ({original}), {len(song['sync'])} sync points; "
+              f".gp {path.stat().st_size / 1e6:.1f} MB")
         n_chords = 0
         for track in song["tracks"]:
             spec = export_gp.TRACKS.get(track["name"].split(" ")[0].lower(), {})
