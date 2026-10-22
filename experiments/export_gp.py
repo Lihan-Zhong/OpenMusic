@@ -32,8 +32,8 @@ TEMPO_STEP; inside Guitar Pro the playback is therefore close to, not locked to,
 Rhythm: each beat goes on a grid of 16ths, or of 8th-note triplets when that fits its onsets clearly better
 (TRIPLET_GAIN, TRIPLET_NEAR); a drum beat goes on 32nds when two hits of one drum in it are closer to a 32nd
 than to a 16th apart (FINE_MIN..FINE_MAX beats): on 16ths such a quick double stroke would become one hit or two
-16ths, one of them on the next beat (the snare in Crayon Case - Surabaya). In such a beat the two strokes always
-get two 32nds, and other hits there that a 16th would put on the next beat still go there (drum_ticks).
+16ths, one of them on the next beat (the snare in Crayon Case - Surabaya). A run of such strokes takes the rising
+steps of its beats' grids nearest to where it was played; every other drum hit stays on 16ths (drum_ticks).
 Each track is written as one voice: notes that start together form a chord that lasts until the next onset (or
 its own end); gaps shorter than LEGATO_BEATS (a whole beat for the vocal melody) are closed, so there are fewer
 tiny rests. Durations are split at bar lines and chord changes and joined with ties; a drum hit is never tied,
@@ -78,8 +78,11 @@ TICKS = gp.Duration.quarterTime    # 960 ticks per beat; every analysis beat is 
 STRAIGHT, TRIPLET, FINE = 4, 3, 8  # grid steps per beat: 16ths, 8th-note triplets, or 32nds (drums only)
 TRIPLET_GAIN = 0.5                 # a beat takes the triplet grid when that at least halves its onsets' summed
 TRIPLET_NEAR = 0.06                # distance to the grid, and one onset is within 0.06 beat of 1/3 or 2/3
-FINE_MIN, FINE_MAX = 0.0625, 0.1875  # two hits of one drum this many beats apart are a 32nd (0.125 beat) apart
+FINE_MIN, FINE_MAX = 0.0625, 0.1875  # two hits of one drum this many beats apart are a 32nd (0.125 beat) apart,
+FINE_MIN_S = 0.045                 # if this many seconds apart too: closer is a flam, or one hit found twice
 TOGETHER = 0.03                    # drum hits this many beats apart or less were struck together
+ODD_32ND = 0.01                    # place_strokes: an odd 32nd costs this many beats more than a 16th
+MERGED = 1.0                       # and two strokes on one tick (too fast for 32nds) this many
 LEGATO_BEATS = 0.5                 # a note ending less than this before the next onset is held until it
 MELODY_LEGATO_BEATS = 1.0          # the same for the vocal melody: sung syllables leave many short gaps
 GHOST_VELOCITY = 0.55              # notes softer than this x the track's 95th-percentile velocity are dropped
@@ -181,10 +184,11 @@ def drum_hits(path):
 
 # ---------- rhythm ----------
 
-def beat_grids(onsets, n_beats, drums=None):
+def beat_grids(onsets, n_beats, drums=None, seconds=None):
     """Grid steps per beat (STRAIGHT, TRIPLET or FINE) for beats 0..n_beats, from onsets in beats. A beat needs
     onsets at two or more places inside it to be a triplet: one stray late 8th is not a triplet figure. With
-    drums (each onset's drum key), a straight beat with a hit of a double stroke (drum_pairs) takes 32nds (FINE)."""
+    drums (each onset's drum key) and their times in seconds, a straight beat with a stroke of a double stroke
+    (drum_pairs) takes 32nds (FINE)."""
     grid = np.full(n_beats + 2, STRAIGHT)
     k = np.floor(onsets).astype(int)
     f = onsets - k
@@ -199,42 +203,77 @@ def beat_grids(onsets, n_beats, drums=None):
         if near and triplet < TRIPLET_GAIN * straight:
             grid[beat] = TRIPLET
     if drums is not None and len(onsets):
-        for i, j in drum_pairs(onsets, drums):
+        for i, j in drum_pairs(onsets, drums, seconds):
             for beat in {k[i], k[j]}:
                 if 0 <= beat < len(grid) and grid[beat] == STRAIGHT:
                     grid[beat] = FINE
     return grid
 
 
-def drum_pairs(onsets, keys):
+def drum_pairs(onsets, keys, seconds=None):
     """[(i, j)]: the double strokes among drum hits, i.e. consecutive hits of one drum FINE_MIN..FINE_MAX beats
-    apart, each drum's in time order (a roll gives (a, b), (b, c), ...)."""
+    and (given their times in seconds) at least FINE_MIN_S apart, each drum's in time order (a roll gives
+    (a, b), (b, c), ...)."""
     onsets, keys = np.asarray(onsets, float), np.asarray(keys)
+    times = None if seconds is None else np.asarray(seconds, float)
     order = np.lexsort((onsets, keys))
     return [(i, j) for i, j in zip(order.tolist(), order[1:].tolist())
-            if keys[i] == keys[j] and FINE_MIN <= onsets[j] - onsets[i] < FINE_MAX]
+            if keys[i] == keys[j] and FINE_MIN <= onsets[j] - onsets[i] < FINE_MAX
+            and (times is None or times[j] - times[i] >= FINE_MIN_S)]
 
 
-def drum_ticks(onsets, keys, grid):
-    """Drum hits (positions in beats, drum keys) -> ticks on the grid from beat_grids, with two fix-ups in
-    32nd beats. A hit that is neither a stroke of a double stroke nor struck together with one goes to the next
-    beat when a 16th would put it there, as on 16ths: a crash on 1 played a little early is not a 32nd before
-    it. And when both strokes round to the same 32nd (a drummer a little ahead: x.70 and x.80), the second,
-    with the hits struck nearer to it than to the first, goes a 32nd later."""
-    onsets, keys = np.asarray(onsets, float), np.asarray(keys)
-    ticks = snap(onsets, grid)
-    k = np.minimum(np.floor(np.maximum(onsets, 0) + 1e-9).astype(int), len(grid) - 1)
-    pairs = drum_pairs(onsets, keys)
-    strokes = onsets[sorted({i for pair in pairs for i in pair})]
-    sixteenths = snap(onsets, np.where(grid == FINE, STRAIGHT, grid))
-    for h in np.flatnonzero(grid[k] == FINE):
-        apart = np.min(np.abs(strokes - onsets[h])) > TOGETHER if len(strokes) else True
-        if apart and sixteenths[h] % TICKS == 0 and sixteenths[h] > ticks[h]:
-            ticks[h] = sixteenths[h]
+def stroke_runs(pairs):
+    """The runs of strokes [a, b, c, ...] in drum_pairs: (a, b) and (b, c) are one run."""
+    runs = []
     for i, j in pairs:
-        if ticks[j] <= ticks[i] and grid[k[i]] == FINE:
-            with_j = (ticks == ticks[j]) & (np.abs(onsets - onsets[j]) < np.abs(onsets - onsets[i]))
-            ticks[with_j] = ticks[i] + TICKS // FINE
+        if runs and runs[-1][-1] == i:
+            runs[-1].append(j)
+        else:
+            runs.append([i, j])
+    return runs
+
+
+def on_grid(tick, grid):
+    """Whether a tick is a step of the grid of its beat."""
+    return tick % (TICKS // grid[min(tick // TICKS, len(grid) - 1)]) == 0
+
+
+def place_strokes(beats, grid):
+    """Ticks for one run of strokes of a drum (positions in beats, rising): each a step of its beat's grid within
+    FINE_MAX of where it was played, rising, with the least summed distance in beats, where an odd 32nd costs
+    ODD_32ND more (and of equal choices, the later). Strokes too fast for the grid share a tick, at MERGED each."""
+    options = []
+    for b in beats:
+        lo, hi = max(int(np.ceil((b - FINE_MAX) * TICKS / 40)) * 40, 0), int((b + FINE_MAX) * TICKS)
+        ticks = [t for t in range(lo, hi + 1, 40) if on_grid(t, grid)] or [int(snap([b], grid)[0])]
+        options.append([(t, abs(t / TICKS - b) + (ODD_32ND if t % (TICKS // 4) else 0)) for t in ticks])
+    key = lambda choice: (round(choice[0], 6), [-t for t in choice[1]])   # noqa: E731
+    best = [(cost, (t,)) for t, cost in options[0]]          # the cheapest way to end on each tick so far
+    for stroke in options[1:]:
+        ways = [min(((c + cost + (MERGED if t == ts[-1] else 0), ts + (t,)) for c, ts in best if ts[-1] <= t),
+                    key=key, default=None) for t, cost in stroke]
+        ways = [w for w in ways if w] or [(c + MERGED, ts + (ts[-1],)) for c, ts in [min(best, key=key)]]
+        best = ways
+    return list(min(best, key=key)[1])
+
+
+def drum_ticks(onsets, keys, grid, seconds=None):
+    """Drum hits (positions in beats, drum keys, times in seconds) -> ticks. Every hit goes on its beat's grid
+    as on 16ths (a 16th in a 32nd beat too), except the strokes of double strokes: each run of them is placed
+    as one (place_strokes), and a hit struck together with a stroke (within TOGETHER) goes with it."""
+    onsets, keys = np.asarray(onsets, float), np.asarray(keys)
+    ticks = snap(onsets, np.where(grid == FINE, STRAIGHT, grid))
+    placed = {}
+    for run in stroke_runs(drum_pairs(onsets, keys, seconds)):
+        placed.update(zip(run, place_strokes(onsets[run], grid)))
+    if placed:
+        strokes = np.array(list(placed))
+        for h in range(len(onsets)):
+            near = strokes[np.argmin(np.abs(onsets[strokes] - onsets[h]))]
+            if h in placed:
+                ticks[h] = placed[h]
+            elif abs(onsets[near] - onsets[h]) <= TOGETHER:
+                ticks[h] = placed[near]
     return ticks
 
 
@@ -265,7 +304,7 @@ def chord_groups(notes, knots, grid, total, drums=False, legato=LEGATO_BEATS):
         return []
     starts, ends, pitches, velocities = (np.array(c) for c in zip(*notes))
     beats = seconds_to_beats(starts, knots)
-    on = drum_ticks(beats, pitches, grid) if drums else snap(beats, grid)
+    on = drum_ticks(beats, pitches, grid, starts) if drums else snap(beats, grid)
     off = snap(seconds_to_beats(ends, knots), grid)
     groups = {}
     for a, b, p, v in zip(on.tolist(), off.tolist(), pitches.tolist(), velocities.tolist()):
@@ -275,6 +314,9 @@ def chord_groups(notes, knots, grid, total, drums=False, legato=LEGATO_BEATS):
         g[1] = max(g[1], b)
         g[2][p] = max(g[2].get(p, 0), v)
     out = sorted(groups.values())
+    off = [g[0] for g in out if not on_grid(g[0], grid)]
+    if off:   # would be written in the wrong place, or (in a triplet beat) not at all
+        raise ValueError(f"onsets off their beat's grid at ticks {off[:3]}")
     for i, g in enumerate(out):
         nxt = out[i + 1][0] if i + 1 < len(out) else total
         end = min(nxt, (g[0] // TICKS + 1) * TICKS) if drums else min(g[1], nxt)
@@ -327,6 +369,8 @@ def triplet_pieces(a, b):
     unit, out = TICKS // 3, []
     while a < b:
         n = min((b - a) // unit, 2 if (a % TICKS) else 3)
+        if n == 0:   # a..b is not a whole number of triplet 8ths: never loop on it
+            raise ValueError(f"ticks {a}-{b} are off the triplet grid")
         out.append((a, gp.Duration(value=4) if n == 3 else
                     gp.Duration(value=4 if n == 2 else 8, tuplet=gp.Tuplet(3, 2))))
         a += n * unit
@@ -681,7 +725,8 @@ def build_song(song_dir, analysis, stems):
             report["tracks"][stem] = {"skipped": f"{len(notes)} notes left of {n_in}"}
             continue
         onsets = seconds_to_beats([n[0] for n in notes], knots)
-        grid = beat_grids(onsets, int(total // TICKS), drums=[n[2] for n in notes] if drums else None)
+        grid = beat_grids(onsets, int(total // TICKS), drums=[n[2] for n in notes] if drums else None,
+                          seconds=[n[0] for n in notes])
         groups = chord_groups(notes, knots, grid, total, drums=drums,
                               legato=MELODY_LEGATO_BEATS if stem == "vocals" else LEGATO_BEATS)
         if drums:

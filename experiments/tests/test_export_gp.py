@@ -34,6 +34,7 @@ import io
 import json
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -303,10 +304,27 @@ def check_units():
             ([(0.70, 38), (0.80, 38)], [720, 840], "a double stroke both of whose hits round to x.75"),
             ([(0.25, 38), (0.375, 38), (0.91, 49)], [240, 360, 960], "a crash played a little before the next beat"),
             ([(0.72, 38), (0.86, 38), (0.86, 36)], [720, 840, 840], "a kick struck with the 2nd stroke"),
-            ([(0.3083, 38), (0.3979, 38), (0.4854, 38)], [240, 360, 480], "a ruff")):
+            ([(0.3083, 38), (0.3979, 38), (0.4854, 38)], [240, 360, 480], "a ruff"),
+            # found in review: a stroke moved off the grid of a triplet beat hung triplet_pieces; strokes pushed one
+            # after another dragged the hits on the next beat a 32nd late
+            ([(0.95, 38), (1.02, 38), (1.333, 42), (1.667, 42)], [840, 960, 1280, 1600], "a drag into a triplet beat"),
+            ([(0.70, 38), (0.78, 38), (0.86, 38), (0.94, 38), (1.0, 36), (1.0, 49)], [600, 720, 840, 960, 960, 960],
+             "a roll into a kick and crash on the beat"),
+            ([(0.82, 38), (0.91, 38), (1.0, 38), (1.0, 49)], [720, 840, 960, 960], "a ruff ending on the beat"),
+            ([(0.338, 38), (0.428, 38), (0.515, 38), (0.5, 42)], [240, 360, 480, 480], "a ruff ending on the &")):
         on, keys = np.array([h[0] for h in hits]), [h[1] for h in hits]
-        got = export_gp.drum_ticks(on, keys, export_gp.beat_grids(on, 3, drums=keys)).tolist()
-        expect(got == want, f"drum ticks for {what}: {got}, expected {want}")
+        grid = export_gp.beat_grids(on, 3, drums=keys)
+        got = export_gp.drum_ticks(on, keys, grid).tolist()
+        expect(got == want and all(export_gp.on_grid(t, grid) for t in got),
+               f"drum ticks for {what}: {got}, expected {want}")
+    for seconds, want in (([1.0, 1.05], [(0, 1)]), ([1.0, 1.04], [])):   # 0.1 beat; 40 ms is a flam or one hit twice
+        got = export_gp.drum_pairs([0.7, 0.8], [38, 38], seconds)
+        expect(got == want, f"double strokes {seconds[1] - seconds[0]:.2f} s apart: {got}, expected {want}")
+    try:
+        export_gp.triplet_pieces(TICKS, TICKS + 120)
+        expect(False, "triplet_pieces should refuse ticks off the triplet grid, not loop")
+    except ValueError:
+        pass
     for a, b, values in ((0, TICKS, [(4, False)]), (0, 720, [(8, True)]), (720, 840, [(32, False)]),
                          (240, TICKS, [(16, False), (8, False)]), (600, TICKS, [(32, False), (16, False)]),
                          (TICKS + 720, 2 * TICKS, [(16, False)])):
@@ -578,11 +596,73 @@ def check_songs(stems_root):
         print(f"  {n_chords} chord symbols")
 
 
+def check_drum_fuzz(cases=25):
+    """Random drum parts (8ths or triplet hi-hats, rolls, ruffs and flams of one drum, some across beats) through
+    build_song, Guitar Pro and back: no hang, bars that add up, no tied drum note, every hit where drum_ticks put
+    it on its beat's grid, and no two strokes of a run on one tick unless they were too fast for 32nds."""
+    print("random drum parts:")
+    rng = np.random.default_rng(1)
+    period, n_beats = 0.5, 16
+    beats = [period * b for b in range(n_beats + 1)]
+    analysis = {"duration_s": period * n_beats,
+                "tempo": {"bpm": 120.0, "beats": beats, "downbeats": beats[::4], "beats_per_bar": 4}}
+
+    def too_slow(*_):
+        raise TimeoutError("the export took over 20 s")
+    old = signal.signal(signal.SIGALRM, too_slow)
+    try:
+        for case in range(cases):
+            hits = []
+            for b in range(n_beats):
+                for x in ((0, 1 / 3, 2 / 3) if rng.random() < 0.2 else (0, 0.5)):
+                    hits.append((b + x + rng.normal(0, 0.015), 42))
+                hits.append((b + rng.normal(0, 0.015), 36 if b % 2 == 0 else 38))
+            for _ in range(int(rng.integers(1, 5))):
+                start, gap, n = rng.uniform(0, n_beats - 2), rng.uniform(0.02, 0.2), int(rng.integers(2, 9))
+                key = int(rng.choice([38, 50, 47, 43, 36]))
+                hits += [(start + i * gap + rng.normal(0, 0.01), key) for i in range(n)]
+            hits = sorted((max(b, 0.0), key) for b, key in hits if b < n_beats - 0.25)
+            notes = [(period * b, period * b, key, 100) for b, key in hits]
+            stems = {"drums": (notes, "random")}
+            signal.alarm(20)
+            try:
+                song, report = export_gp.build_song(Path("Fuzz - 鼓"), analysis, stems)
+                gp5 = io.BytesIO()
+                export_gp.gp.write(song, gp5, version=(5, 1, 0), encoding=export_gp.GP5_TEXT)
+                dumped = gp7.dump(gp7.to_gp(gp5.getvalue()))
+            except Exception as e:
+                expect(False, f"random drums {case}: {type(e).__name__}: {e}")
+                continue
+            finally:
+                signal.alarm(0)
+            knots, _, bars, _ = export_gp.song_bars(analysis, stems)
+            total = (bars[-1][0] + bars[-1][1]) * TICKS
+            times, keys = [n[0] for n in notes], [n[2] for n in notes]
+            on = export_gp.seconds_to_beats(times, knots)
+            grid = export_gp.beat_grids(on, int(total // TICKS), drums=keys, seconds=times)
+            ticks = export_gp.drum_ticks(on, keys, grid, times).tolist()
+            drums = dumped["tracks"][0]
+            want = {(t, key) for t, key in zip(ticks, keys) if t < total}
+            expect(not export_gp.check(dumped, report), f"random drums {case}: {export_gp.check(dumped, report)}")
+            expect(struck(drums) == want and all(export_gp.on_grid(t, grid) for t in ticks),
+                   f"random drums {case}: missing {sorted(want - struck(drums))[:4]}, extra {sorted(struck(drums) - want)[:4]}")
+            expect(not any(n["tie"] for b in drums["beats"] for n in b["notes"]), f"random drums {case}: a tied drum note")
+            for run in export_gp.stroke_runs(export_gp.drum_pairs(on, keys, times)):
+                shared = len(run) - len({ticks[i] for i in run})
+                room = len({t for i in run for t in range(ticks[run[0]], ticks[run[-1]] + 1, 120)})
+                expect(shared == 0 or room < len(run), f"random drums {case}: run {[round(on[i], 3) for i in run]} "
+                       f"shares {shared} tick(s): {[ticks[i] for i in run]}")
+    finally:
+        signal.signal(signal.SIGALRM, old)
+    print(f"  {cases} parts")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--songs", type=Path, help="also check the exported .gp files under this stems folder")
     args = parser.parse_args()
     check_units()
+    check_drum_fuzz()
     songs = export_gp.SONGS
     try:
         check_song()
