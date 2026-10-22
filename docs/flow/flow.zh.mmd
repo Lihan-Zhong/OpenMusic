@@ -1,0 +1,41 @@
+%%{init: {"themeVariables": {"lineColor": "#b4451f"}}}%%
+flowchart LR
+    song(["🎵 歌曲"])
+    subgraph S1 ["✂️ 分轨（二选一）"]
+        direction TB
+        demucs("<b>Demucs</b><br/>任何电脑")
+        roformer("<b>RoFormer</b><br/>更好，要 NVIDIA 显卡")
+    end
+    stems[("<b>6 条分轨</b><br/>MP3")]
+    subgraph S2 ["🔍 分析和扒谱"]
+        direction LR
+        analyze("<b>Beat This! · S-KEY</b><br/>拍子 · 调 · 和弦")
+        pitched("<b>Basic Pitch</b><br/>5 条分轨 → MIDI")
+        drum("<b>鼓谱模型</b><br/>鼓 → MIDI")
+    end
+    subgraph S3 ["🎸 练习和导出"]
+        direction TB
+        player("<b>练习播放器</b>")
+        midi("<b>MIDI</b>")
+        gp("<b>Guitar Pro</b>")
+    end
+    demucs ~~~ roformer
+    player ~~~ midi ~~~ gp
+    song --> S1 --> stems --> S2 --> S3
+    analyze -. 拍子 .-> pitched
+    analyze -. 拍子 .-> drum
+    stems -. 音频 .-> S3
+
+    classDef input fill:#fdf6f3,stroke:#b4451f,stroke-width:1.5px,color:#3b1307
+    classDef step fill:#fbe4d9,stroke:#c2410c,stroke-width:1.5px,color:#3b1307
+    classDef data fill:#f6c9b3,stroke:#b4451f,stroke-width:1.5px,color:#3b1307
+    classDef out fill:#b4451f,stroke:#8a3416,stroke-width:1.5px,color:#ffffff
+    class song input
+    class demucs,roformer,analyze,pitched,drum step
+    class stems data
+    class player,midi,gp out
+    style S1 fill:#fffaf7,stroke:#e9b8a0,color:#8a3416
+    style S2 fill:#fffaf7,stroke:#e9b8a0,color:#8a3416
+    style S3 fill:#fff1ea,stroke:#d98b6a,color:#8a3416
+    linkStyle 3,4,5,6 stroke:#b4451f,stroke-width:2.5px
+    linkStyle 7,8,9 stroke:#d98b6a,stroke-width:1.5px

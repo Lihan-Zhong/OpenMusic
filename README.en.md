@@ -10,6 +10,25 @@ An open-source tool for musicians to practise and transcribe songs: split a song
 bass / guitar / piano / other), then adjust volumes, slow down, loop, follow the chords and get MIDI in a local
 web page. It is Python that runs on your own computer; there is no mobile version.
 
+## How it works
+
+![How it works](docs/flow/flow.en.png)
+
+The workbench runs these steps in a row: one click on "Process all" per song. Each step can also be redone on
+its own, or run in a terminal (see "Practice player" below).
+
+- **Split**: Demucs 6-stem (runs on any computer) or BS-RoFormer-SW 6-stem (better, needs an NVIDIA GPU) gives 6
+  MP3 stems: vocals, drums, bass, guitar, piano/keys, other. Splitting only reads the song, and every later step
+  only reads the stems; nothing changes the audio.
+- **Analyze**: Beat This! finds the beats and bars, S-KEY the key, and templates + Viterbi the chords.
+- **Transcribe**: Basic Pitch turns the 5 pitched stems (vocals, bass, guitar, piano, other) into MIDI; the drums
+  go through the built-in drum model, or the optional ADTOF-pytorch plugin if it is installed. The MIDI uses the
+  beats and bar lines from the analysis (the dashed "beats" lines), so bar numbers agree between the MIDI, the
+  Guitar Pro file and the practice player.
+- **Practise and export**: the practice player plays the stems' audio; the Guitar Pro file carries a mix of
+  stems as its audio track, chosen when you download it, by default vocals + guitar + other (the dashed "audio"
+  line).
+
 ## Quick start
 
 1. Set up the environment as in "Installation" below.
@@ -119,9 +138,10 @@ browser's downloads; no extra copy is kept in the project.
   one whole-number tempo at a time: the score follows the per-bar tempo and marks a new tempo when it moves by
   more than 3 %. With the song's audio track in the file, its sync points set the playback tempo, so the score
   follows the recording.
-- **Rhythm**: notes go on a grid of 16ths, or of 8th-note triplets in beats that are clearly triplets. Notes that
-  start together form a chord, held until the next note starts; short gaps are closed, so there are fewer stray
-  rests.
+- **Rhythm**: notes go on a grid of 16ths, or of 8th-note triplets in beats that are clearly triplets; a quick
+  double stroke on the drums (two hits of one drum about a 32nd apart) is written as two 32nds, not merged into
+  one. Notes that start together form a chord, held until the next note starts; short gaps are closed, so there
+  are fewer stray rests.
 - **Frets**: every playable fingering of each chord is listed (one note per string, the fretting hand spanning at
   most 4 frets on guitar and 3 on bass), and dynamic programming picks the path with the least hand movement over
   the whole song, then low positions and the usual chord shapes. Notes that cannot be played together lose the

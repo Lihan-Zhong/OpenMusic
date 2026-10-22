@@ -1,0 +1,41 @@
+%%{init: {"themeVariables": {"lineColor": "#b4451f"}}}%%
+flowchart LR
+    song(["🎵 Song"])
+    subgraph S1 ["✂️ Split (either one)"]
+        direction TB
+        demucs("<b>Demucs</b><br/>any computer")
+        roformer("<b>RoFormer</b><br/>better, needs an NVIDIA GPU")
+    end
+    stems[("<b>6 stems</b><br/>MP3")]
+    subgraph S2 ["🔍 Analyze and transcribe"]
+        direction LR
+        analyze("<b>Beat This! · S-KEY</b><br/>beats · key · chords")
+        pitched("<b>Basic Pitch</b><br/>5 stems → MIDI")
+        drum("<b>Drum model</b><br/>drums → MIDI")
+    end
+    subgraph S3 ["🎸 Practise and export"]
+        direction TB
+        player("<b>Practice player</b>")
+        midi("<b>MIDI</b>")
+        gp("<b>Guitar Pro</b>")
+    end
+    demucs ~~~ roformer
+    player ~~~ midi ~~~ gp
+    song --> S1 --> stems --> S2 --> S3
+    analyze -. beats .-> pitched
+    analyze -. beats .-> drum
+    stems -. audio .-> S3
+
+    classDef input fill:#fdf6f3,stroke:#b4451f,stroke-width:1.5px,color:#3b1307
+    classDef step fill:#fbe4d9,stroke:#c2410c,stroke-width:1.5px,color:#3b1307
+    classDef data fill:#f6c9b3,stroke:#b4451f,stroke-width:1.5px,color:#3b1307
+    classDef out fill:#b4451f,stroke:#8a3416,stroke-width:1.5px,color:#ffffff
+    class song input
+    class demucs,roformer,analyze,pitched,drum step
+    class stems data
+    class player,midi,gp out
+    style S1 fill:#fffaf7,stroke:#e9b8a0,color:#8a3416
+    style S2 fill:#fffaf7,stroke:#e9b8a0,color:#8a3416
+    style S3 fill:#fff1ea,stroke:#d98b6a,color:#8a3416
+    linkStyle 3,4,5,6 stroke:#b4451f,stroke-width:2.5px
+    linkStyle 7,8,9 stroke:#d98b6a,stroke-width:1.5px
