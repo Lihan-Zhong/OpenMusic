@@ -32,6 +32,7 @@ with a sync point on every bar start, and no .gp5 left next to it.
 import argparse
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -450,11 +451,13 @@ def check_command_line(song_dir):
 
 def check_gpif(path, song, skip=0.0):
     """The .gp read with Python's own zip and XML parsers: version, title, bars and tracks as alphaTab read
-    them, chord names without diagrams, tempo changes as steps with bar 1 marked once."""
+    them, chord names without diagrams, tempo changes as steps with bar 1 marked once, the layout fields as
+    Guitar Pro 8 writes them."""
     name = path.parent.parent.name
     with zipfile.ZipFile(path) as z:
         expect(z.read("VERSION") == b"7.0", f"{name}: .gp VERSION {z.read('VERSION')!r}")
-        root = ET.fromstring(z.read("Content/score.gpif"))
+        gpif = z.read("Content/score.gpif").decode("utf-8")
+        root = ET.fromstring(gpif)
         entries, audio = z.namelist(), gp7.audio_entry(z)
         meta = json.loads(z.read("meta.json")) if "meta.json" in entries else {}
     expect(root.findtext("Score/Title") == song["title"], f"{name}: gpif title {root.findtext('Score/Title')!r}")
@@ -466,6 +469,10 @@ def check_gpif(path, song, skip=0.0):
     tempos = [a for a in root.findall("MasterTrack/Automations/Automation") if a.findtext("Type") == "Tempo"]
     expect(all(a.findtext("Linear") == "false" for a in tempos) and [a.findtext("Bar") for a in tempos].count("0") == 1,
            f"{name}: tempo changes should be steps, bar 1 marked once")
+    # in CDATA (alphaTab), Guitar Pro 8 saved a nonsense bars-per-line number that then hung it (gp7.gp8_layout)
+    layout = re.findall(r"<(?:ScoreSystems\w*Layout|MultiVoice)>[^<]*(?:<!\[CDATA\[)?", gpif)
+    expect(layout == ["<ScoreSystemsDefaultLayout>3", "<ScoreSystemsLayout>", "<MultiVoice>1"],
+           f"{name}: gpif layout fields {layout}")
     states = {t.findtext("Name"): t.findtext("PlaybackState") for t in root.findall("Tracks/Track")}
     expect({n for n, state in states.items() if state == "Mute"} == {t["name"] for t in song["tracks"] if t["mute"]},
            f"{name}: gpif playback states {states}")

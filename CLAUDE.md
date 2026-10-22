@@ -25,6 +25,9 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   the user pick stems / the original song / none; POST /api/gp runs export_gp.py --out to a temp file and streams
   it (nothing stored). Checked in GP8 on the user's Mac.
   If "no sound" is reported, check the audio output first (it was AirPods once), not the file.
+  If GP8 hangs and eats memory opening a .gp (80 GB once, froze the Mac): a .gp GP8 had saved again had
+  ScoreSystemsDefaultLayout -1955444992 (alphaTab writes it in CDATA, GP8 does not read that); gp7.gp8_layout now
+  writes plain numbers. GP8-saved copies made before Oct 21 can still hang: re-download or set that number to 3.
 - Player usability pass (eec5571): loops can be cleared (✕, Esc, double-click), Set A/B keys, a sticky transport
   with a loop readout, trainer progress and restore, a restored-settings notice and 本曲恢复默认; checked by the
   ux section of `tests/player_test.py`. Stems are read-only for every step but the split (test_transcribe checks).

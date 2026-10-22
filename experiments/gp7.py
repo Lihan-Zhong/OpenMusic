@@ -14,9 +14,9 @@ Content/Assets/<id>.<its extension> (alphaTab: Content/Assets/backing-track, no 
 plays as silence), the asset lists its original path and id, the audio track's YouTubeVideoUrl / Filter /
 FramesPerPixel sit next to its ChannelStrip rather than inside it, Assets comes last, there is no empty
 AudioTracks, and meta.json says hasAudio (gp8_audio).
-One fix-up after alphaTab: on a drum track it writes each note's General MIDI key where Guitar Pro expects the
+Two fix-ups after alphaTab: on a drum track it writes each note's General MIDI key where Guitar Pro expects the
 index of the kit piece in the track's drum kit, so the notes are pointed at the piece whose InputMidiNumbers
-hold that key (fix_drums).
+hold that key (fix_drums); and the score's layout fields are written as Guitar Pro 8 writes them (gp8_layout).
 
     gp_bytes = to_gp(gp5_bytes, audio=mp3_bytes, sync=[(0, 0.0), (1, 1000.0), ...])   # (bar index, ms)
     dump(gp_bytes)      # what alphaTab reads back: title, bars, audio, and every beat and note of every track
@@ -173,14 +173,14 @@ def to_gp(gp5, audio=None, sync=(), audio_name="audio.mp3", padding=0):
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         entries = [(info, z.read(info)) for info in z.infolist() if info.filename != ALPHATAB_ASSET]
     if not audio:
-        return rezip(entries, fix_drums)
+        return rezip(entries, lambda gpif: gp8_layout(fix_drums(gpif)))
     asset_id = str(uuid.UUID(bytes=hashlib.sha1(audio).digest()[:16], version=5))  # as Guitar Pro: from the file
     asset = f"{ASSETS}{asset_id}{Path(audio_name).suffix.lower()}"
     file_info = zipfile.ZipInfo(asset)
     file_info.compress_type = zipfile.ZIP_DEFLATED   # as Guitar Pro 8 stores it; folder and meta.json stored
     entries += [(zipfile.ZipInfo(ASSETS), b""), (file_info, audio),
                 (zipfile.ZipInfo("meta.json"), b'{\n    "hasAudio": true,\n    "version": "1.0.0"\n}\n')]
-    return rezip(entries, lambda gpif: gp8_audio(fix_drums(gpif), asset, asset_id, audio_name, padding))
+    return rezip(entries, lambda gpif: gp8_audio(gp8_layout(fix_drums(gpif)), asset, asset_id, audio_name, padding))
 
 
 def audio_entry(z):
@@ -190,6 +190,16 @@ def audio_entry(z):
 
 def cdata(text):
     return "<![CDATA[" + text.replace("]]>", "]]]]><![CDATA[>") + "]]>"
+
+
+def gp8_layout(gpif):
+    """score.gpif with the score's layout fields as Guitar Pro 8 writes them: the default bars per line
+    (ScoreSystemsDefaultLayout) and the bars of each line (ScoreSystemsLayout) as plain text, not in CDATA
+    sections as alphaTab writes them, and MultiVoice 1 (alphaTab: "1>"). Guitar Pro 8 does not read the CDATA
+    number: a .gp of ours that it saved again had -1955444992 bars per line, and opening that file, Guitar Pro
+    laid the score out without end (ScoreEngravingContext::repairFixedLayout) until the Mac ran out of memory."""
+    gpif = re.sub(r"<(ScoreSystems(?:Default)?Layout)><!\[CDATA\[([\d ]*)\]\]></\1>", r"<\1>\2</\1>", gpif)
+    return gpif.replace("<MultiVoice>1></MultiVoice>", "<MultiVoice>1</MultiVoice>")
 
 
 def gp8_audio(gpif, asset, asset_id, audio_name, padding=0):
