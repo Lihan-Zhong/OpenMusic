@@ -28,6 +28,9 @@ app or a big software-engineering effort; keep proposals small. Talk to the user
   If GP8 hangs and eats memory opening a .gp (80 GB once, froze the Mac): a .gp GP8 had saved again had
   ScoreSystemsDefaultLayout -1955444992 (alphaTab writes it in CDATA, GP8 does not read that); gp7.gp8_layout now
   writes plain numbers. GP8-saved copies made before Oct 21 can still hang: re-download or set that number to 3.
+  Drum double strokes (two hits of one drum a 32nd apart, Surabaya's snare) go on 32nds (drum_pairs, drum_ticks);
+  a drum hit is never tied (a tied drum note reads back as the kit's first piece, a snare). Pitched tracks keep
+  16ths/triplets: their same-pitch pairs that merge are mostly one held note split by Basic Pitch.
 - Player usability pass (eec5571): loops can be cleared (✕, Esc, double-click), Set A/B keys, a sticky transport
   with a loop readout, trainer progress and restore, a restored-settings notice and 本曲恢复默认; checked by the
   ux section of `tests/player_test.py`. Stems are read-only for every step but the split (test_transcribe checks).

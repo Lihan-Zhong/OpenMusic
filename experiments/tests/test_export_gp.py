@@ -156,6 +156,18 @@ def song_parts():
             drums.append((bar + k / 2, 42))
         drums += [(bar, 36), (bar + 1, 38), (bar + 2, 36)] + ([(bar + 3, 38)] if n == 4 else [])
     drum_want = {(round(b * TICKS), key) for b, key in drums}
+    # snare double strokes a 32nd apart, a little early and late (Crayon Case - Surabaya): on 16ths one would
+    # merge into one hit, the other put its second hit on the next beat; on 32nds both stay where they were
+    for first, second in ((13.72, 13.85), (9.73, 9.88)):
+        drums += [(first, 38), (second, 38)]
+        drum_want |= {(round(round(first * 8) / 8 * TICKS), 38), (round(round(second * 8) / 8 * TICKS), 38)}
+    # in an otherwise empty bar: a kick that would last into a tie, a double stroke a little ahead (both hits
+    # round to x.75), a kick struck with its 2nd stroke, and a crash a little before the next bar
+    hits = [(25.0, 36), (25.25, 36), (25.70, 38), (25.80, 38), (25.80, 36), (26.91, 49)]
+    hits += [(26.25, 38), (26.375, 38)]                     # puts beat 26 on 32nds: the crash still goes to 27
+    drums += hits
+    drum_want |= {(round(b * TICKS), key) for b, key in [(25.0, 36), (25.25, 36), (25.75, 38), (25.875, 38),
+                                                         (25.875, 36), (27.0, 49), (26.25, 38), (26.375, 38)]}
     return ({"guitar": (guitar, want, ghosts), "bass": (bass, bass_want, set()),
              "vocals": (vocals, vocal_want, set()), "other": (other, other_want, set()),
              "piano": (piano, set(), set())}, drums, drum_want)
@@ -279,6 +291,27 @@ def check_units():
     expect(got == [(4, 3)], f"triplet quarter in the 2nd and 3rd third of a beat: {got}")
     got = [(d.value, d.tuplet.enters) for _, d in export_gp.triplet_pieces(0, 320)]
     expect(got == [(8, 3)], f"one triplet 8th: {got}")
+    snare = lambda *xs: export_gp.beat_grids(np.array(xs), 3, drums=[38] * len(xs))[:3].tolist()   # noqa: E731
+    for xs, want, what in (((0.72, 0.85), [8, 4, 4], "a 32nd double stroke"),
+                           ((1.73, 1.88), [4, 8, 4], "one whose 2nd hit is nearer the next beat"),
+                           ((0.3083, 0.3979, 0.4854), [8, 4, 4], "a ruff 0.09 beat apart (草东没有派对 - 大风吹)"),
+                           ((0.72, 0.75), [4, 4, 4], "a flam"), ((0.5, 0.75), [4, 4, 4], "two 16ths")):
+        expect(snare(*xs) == want, f"drum grid for {what} {xs}: {snare(*xs)}, expected {want}")
+    got = export_gp.beat_grids(np.array([0.72, 0.85]), 3, drums=[38, 36])[:3].tolist()
+    expect(got == [4, 4, 4], f"drum grid for two drums a 32nd apart (they may share a 16th): {got}")
+    for hits, want, what in (
+            ([(0.70, 38), (0.80, 38)], [720, 840], "a double stroke both of whose hits round to x.75"),
+            ([(0.25, 38), (0.375, 38), (0.91, 49)], [240, 360, 960], "a crash played a little before the next beat"),
+            ([(0.72, 38), (0.86, 38), (0.86, 36)], [720, 840, 840], "a kick struck with the 2nd stroke"),
+            ([(0.3083, 38), (0.3979, 38), (0.4854, 38)], [240, 360, 480], "a ruff")):
+        on, keys = np.array([h[0] for h in hits]), [h[1] for h in hits]
+        got = export_gp.drum_ticks(on, keys, export_gp.beat_grids(on, 3, drums=keys)).tolist()
+        expect(got == want, f"drum ticks for {what}: {got}, expected {want}")
+    for a, b, values in ((0, TICKS, [(4, False)]), (0, 720, [(8, True)]), (720, 840, [(32, False)]),
+                         (240, TICKS, [(16, False), (8, False)]), (600, TICKS, [(32, False), (16, False)]),
+                         (TICKS + 720, 2 * TICKS, [(16, False)])):
+        got = [(d.value, d.isDotted) for _, d in export_gp.fine_pieces(a, b)]
+        expect(got == values, f"32nds {a}-{b}: {got}, expected {values}")
 
     notes = [(0.0, 1.0, 45, 90), (0.0, 1.0, 57, 50), (0.0, 1.0, 64, 85), (1.0, 2.0, 50, 30)]
     kept, quiet, overtones = export_gp.drop_ghosts(notes, polyphonic=True)

@@ -30,9 +30,14 @@ a quarter note; each bar's time signature is its number of beats over 4. Guitar 
 at a time, so the written tempo follows the song's per-bar tempo and only changes when it moves by more than
 TEMPO_STEP; inside Guitar Pro the playback is therefore close to, not locked to, the recording.
 Rhythm: each beat goes on a grid of 16ths, or of 8th-note triplets when that fits its onsets clearly better
-(TRIPLET_GAIN, TRIPLET_NEAR). Each track is written as one voice: notes that start together form a chord that
-lasts until the next onset (or its own end); gaps shorter than LEGATO_BEATS (a whole beat for the vocal melody) are
-closed, so there are fewer tiny rests. Durations are split at bar lines and chord changes and joined with ties.
+(TRIPLET_GAIN, TRIPLET_NEAR); a drum beat goes on 32nds when two hits of one drum in it are closer to a 32nd
+than to a 16th apart (FINE_MIN..FINE_MAX beats): on 16ths such a quick double stroke would become one hit or two
+16ths, one of them on the next beat (the snare in Crayon Case - Surabaya). In such a beat the two strokes always
+get two 32nds, and other hits there that a 16th would put on the next beat still go there (drum_ticks).
+Each track is written as one voice: notes that start together form a chord that lasts until the next onset (or
+its own end); gaps shorter than LEGATO_BEATS (a whole beat for the vocal melody) are closed, so there are fewer
+tiny rests. Durations are split at bar lines and chord changes and joined with ties; a drum hit is never tied,
+the rest of it is written as rests.
 Clean-up on top of transcribe.py: notes softer than GHOST_VELOCITY x the track's loud level are dropped, and in
 the polyphonic stems so are overtone ghosts (a softer note an octave, a twelfth, two octaves, ... above a note
 sounding at the same time). Notes the instrument cannot play are dropped too; a guitar or bass part with
@@ -70,9 +75,11 @@ from common import ROOT, load
 from transcribe import SETTINGS, read_analysis, seconds_to_beats, tempo_map
 
 TICKS = gp.Duration.quarterTime    # 960 ticks per beat; every analysis beat is written as a quarter note
-STRAIGHT, TRIPLET = 4, 3           # grid steps per beat: 16ths, or 8th-note triplets
+STRAIGHT, TRIPLET, FINE = 4, 3, 8  # grid steps per beat: 16ths, 8th-note triplets, or 32nds (drums only)
 TRIPLET_GAIN = 0.5                 # a beat takes the triplet grid when that at least halves its onsets' summed
 TRIPLET_NEAR = 0.06                # distance to the grid, and one onset is within 0.06 beat of 1/3 or 2/3
+FINE_MIN, FINE_MAX = 0.0625, 0.1875  # two hits of one drum this many beats apart are a 32nd (0.125 beat) apart
+TOGETHER = 0.03                    # drum hits this many beats apart or less were struck together
 LEGATO_BEATS = 0.5                 # a note ending less than this before the next onset is held until it
 MELODY_LEGATO_BEATS = 1.0          # the same for the vocal melody: sung syllables leave many short gaps
 GHOST_VELOCITY = 0.55              # notes softer than this x the track's 95th-percentile velocity are dropped
@@ -174,9 +181,10 @@ def drum_hits(path):
 
 # ---------- rhythm ----------
 
-def beat_grids(onsets, n_beats):
-    """Grid steps per beat (STRAIGHT or TRIPLET) for beats 0..n_beats, from onsets in beats. A beat needs
-    onsets at two or more places inside it to be a triplet: one stray late 8th is not a triplet figure."""
+def beat_grids(onsets, n_beats, drums=None):
+    """Grid steps per beat (STRAIGHT, TRIPLET or FINE) for beats 0..n_beats, from onsets in beats. A beat needs
+    onsets at two or more places inside it to be a triplet: one stray late 8th is not a triplet figure. With
+    drums (each onset's drum key), a straight beat with a hit of a double stroke (drum_pairs) takes 32nds (FINE)."""
     grid = np.full(n_beats + 2, STRAIGHT)
     k = np.floor(onsets).astype(int)
     f = onsets - k
@@ -190,7 +198,44 @@ def beat_grids(onsets, n_beats):
         near = np.min(np.abs(inner[:, None] - [1 / 3, 2 / 3])) < TRIPLET_NEAR
         if near and triplet < TRIPLET_GAIN * straight:
             grid[beat] = TRIPLET
+    if drums is not None and len(onsets):
+        for i, j in drum_pairs(onsets, drums):
+            for beat in {k[i], k[j]}:
+                if 0 <= beat < len(grid) and grid[beat] == STRAIGHT:
+                    grid[beat] = FINE
     return grid
+
+
+def drum_pairs(onsets, keys):
+    """[(i, j)]: the double strokes among drum hits, i.e. consecutive hits of one drum FINE_MIN..FINE_MAX beats
+    apart, each drum's in time order (a roll gives (a, b), (b, c), ...)."""
+    onsets, keys = np.asarray(onsets, float), np.asarray(keys)
+    order = np.lexsort((onsets, keys))
+    return [(i, j) for i, j in zip(order.tolist(), order[1:].tolist())
+            if keys[i] == keys[j] and FINE_MIN <= onsets[j] - onsets[i] < FINE_MAX]
+
+
+def drum_ticks(onsets, keys, grid):
+    """Drum hits (positions in beats, drum keys) -> ticks on the grid from beat_grids, with two fix-ups in
+    32nd beats. A hit that is neither a stroke of a double stroke nor struck together with one goes to the next
+    beat when a 16th would put it there, as on 16ths: a crash on 1 played a little early is not a 32nd before
+    it. And when both strokes round to the same 32nd (a drummer a little ahead: x.70 and x.80), the second,
+    with the hits struck nearer to it than to the first, goes a 32nd later."""
+    onsets, keys = np.asarray(onsets, float), np.asarray(keys)
+    ticks = snap(onsets, grid)
+    k = np.minimum(np.floor(np.maximum(onsets, 0) + 1e-9).astype(int), len(grid) - 1)
+    pairs = drum_pairs(onsets, keys)
+    strokes = onsets[sorted({i for pair in pairs for i in pair})]
+    sixteenths = snap(onsets, np.where(grid == FINE, STRAIGHT, grid))
+    for h in np.flatnonzero(grid[k] == FINE):
+        apart = np.min(np.abs(strokes - onsets[h])) > TOGETHER if len(strokes) else True
+        if apart and sixteenths[h] % TICKS == 0 and sixteenths[h] > ticks[h]:
+            ticks[h] = sixteenths[h]
+    for i, j in pairs:
+        if ticks[j] <= ticks[i] and grid[k[i]] == FINE:
+            with_j = (ticks == ticks[j]) & (np.abs(onsets - onsets[j]) < np.abs(onsets - onsets[i]))
+            ticks[with_j] = ticks[i] + TICKS // FINE
+    return ticks
 
 
 def snap(beats, grid):
@@ -219,7 +264,8 @@ def chord_groups(notes, knots, grid, total, drums=False, legato=LEGATO_BEATS):
     if not notes:
         return []
     starts, ends, pitches, velocities = (np.array(c) for c in zip(*notes))
-    on = snap(seconds_to_beats(starts, knots), grid)
+    beats = seconds_to_beats(starts, knots)
+    on = drum_ticks(beats, pitches, grid) if drums else snap(beats, grid)
     off = snap(seconds_to_beats(ends, knots), grid)
     groups = {}
     for a, b, p, v in zip(on.tolist(), off.tolist(), pitches.tolist(), velocities.tolist()):
@@ -255,6 +301,23 @@ def straight_pieces(a, b, bar_start):
                 break
         value, dotted = STRAIGHT_DURATIONS[d]
         out.append((bar_start + p * unit, gp.Duration(value=value, isDotted=dotted)))
+        p += d
+    return out
+
+
+FINE_DURATIONS = {8: (4, False, 8), 6: (8, True, 8), 4: (8, False, 4), 3: (16, True, 4), 2: (16, False, 2),
+                  1: (32, False, 1)}   # length in 32nds: (note value, dotted, the 32nd it may start on a multiple of)
+
+
+def fine_pieces(a, b):
+    """[(tick, Duration)] filling a..b inside one beat of 32nds: the longest value that fits where it starts,
+    an 8th or longer only on an 8th, a 16th only on a 16th."""
+    unit, beat = TICKS // 8, a // TICKS * TICKS
+    p, end, out = (a - beat) // unit, (b - beat) // unit, []
+    while p < end:
+        d = next(d for d, (_, _, step) in FINE_DURATIONS.items() if p + d <= end and p % step == 0)
+        value, dotted, _ = FINE_DURATIONS[d]
+        out.append((beat + p * unit, gp.Duration(value=value, isDotted=dotted)))
         p += d
     return out
 
@@ -483,8 +546,8 @@ def fill_track(track, groups, played, grid, chords, tempos, bars):
     if t < total:
         segments.append((t, total, None))
     cuts = {b * TICKS for b, _ in bars} | set(chords)
-    triplet_beats = np.flatnonzero(grid == TRIPLET)
-    cuts |= {k * TICKS for k in triplet_beats} | {(k + 1) * TICKS for k in triplet_beats}
+    own_beats = np.flatnonzero(grid != STRAIGHT)           # triplet and 32nd beats are written beat by beat
+    cuts |= {k * TICKS for k in own_beats} | {(k + 1) * TICKS for k in own_beats}
     cuts = sorted(c for c in cuts if 0 < c < total)
     bar_starts = [b * TICKS for b, _ in bars]
     tempo_ticks = {bars[i][0] * TICKS: bpm for i, bpm in tempos.items() if i} if tempos else {}  # bar 1: song tempo
@@ -494,20 +557,26 @@ def fill_track(track, groups, played, grid, chords, tempos, bars):
         first = True
         for x, y in zip(edges, edges[1:]):
             bar = int(np.searchsorted(bar_starts, x, side="right")) - 1
-            if grid[min(x // TICKS, len(grid) - 1)] == TRIPLET:
+            steps = grid[min(x // TICKS, len(grid) - 1)]
+            if steps == TRIPLET:
                 pieces = triplet_pieces(x, y)
+            elif steps == FINE:
+                pieces = fine_pieces(x, y)
             else:
                 pieces = straight_pieces(x, y, bar_starts[bar])
             voice = track.measures[bar].voices[0]
             for tick, duration in pieces:
+                # a drum hit is never tied (a tied drum note reads back as the kit's first piece, a snare): the
+                # rest of it is a rest
+                struck = notes is not None and (first or not track.isPercussionTrack)
                 beat = gp.Beat(voice, duration=duration,
-                               status=gp.BeatStatus.normal if notes else gp.BeatStatus.rest)
-                if notes:
+                               status=gp.BeatStatus.normal if struck else gp.BeatStatus.rest)
+                if struck:
                     for string, fret in notes[1]:
                         beat.notes.append(gp.Note(beat, value=fret, string=string, velocity=gp.Velocities.default,
                                                   type=gp.NoteType.normal if first else gp.NoteType.tie))
                     written += len(notes[1]) if first else 0
-                    first = False
+                first = False
                 if tick in chords:
                     beat.effect.chord = chord_symbol(chords[tick], len(track.strings))
                 if tick in tempo_ticks:
@@ -593,7 +662,8 @@ def build_song(song_dir, analysis, stems):
               # after the skipped start
               "sync": [(i, round(1000 * (float(beats_to_seconds(b, knots)) - skip), 3)) for i, (b, _) in enumerate(bars)]}
     notice = [f"Bars and beats: {tempo_note}.",
-              "Rhythm on a grid of 16ths and 8th-note triplets; ghost and overtone notes dropped."]
+              "Rhythm on a grid of 16ths and 8th-note triplets (drums: 32nds for quick double strokes); "
+              "ghost and overtone notes dropped."]
     for stem in [s for s in ORDER if s in stems]:
         notes, method = stems[stem]
         drums = stem == "drums"
@@ -611,7 +681,7 @@ def build_song(song_dir, analysis, stems):
             report["tracks"][stem] = {"skipped": f"{len(notes)} notes left of {n_in}"}
             continue
         onsets = seconds_to_beats([n[0] for n in notes], knots)
-        grid = beat_grids(onsets, int(total // TICKS))
+        grid = beat_grids(onsets, int(total // TICKS), drums=[n[2] for n in notes] if drums else None)
         groups = chord_groups(notes, knots, grid, total, drums=drums,
                               legato=MELODY_LEGATO_BEATS if stem == "vocals" else LEGATO_BEATS)
         if drums:
@@ -625,7 +695,7 @@ def build_song(song_dir, analysis, stems):
         report["tracks"][stem] = {
             "name": settings["name"], "notes_in": n_in, "quiet": quiet, "overtones": overtones,
             "out_of_range": out_of_range, "unplayable": unplayable, "notes": written, "chords": len(groups),
-            "triplet_beats": int(np.sum(grid == TRIPLET)), "drop_d": drop_d,
+            "triplet_beats": int(np.sum(grid == TRIPLET)), "fine_beats": int(np.sum(grid == FINE)), "drop_d": drop_d,
             "max_span": max(map(fret_span, played), default=0) if settings["span"] is not None else None,
             "tuning": strings}
         notice.append(f"{settings['name']}: {method}"[:250])
@@ -780,7 +850,8 @@ def export_song(song_dir, force=False, audio_mode="stems", audio_stems=AUDIO_STE
         if "skipped" in r:
             print(f"  {stem}: skipped ({r['skipped']})")
             continue
-        extra = ", drop D" if r["drop_d"] else ""
+        extra = f", {r['fine_beats']} beats in 32nds" if r["fine_beats"] else ""
+        extra += ", drop D" if r["drop_d"] else ""
         extra += ", muted" if stem in MUTED else ""
         extra += f", widest chord {r['max_span']} frets" if r["max_span"] is not None else ""
         print(f"  {stem}: {r['notes']} notes in {r['chords']} onsets, {r['triplet_beats']} triplet beats; dropped "
