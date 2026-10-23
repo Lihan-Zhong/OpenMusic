@@ -10,9 +10,20 @@ OpenMusic is an open-source tool for musicians to **practise** and **transcribe*
 stems (vocals / drums / bass / guitar / piano / other), and a **local HTML page** is where you work with them:
 adjust the volumes, slow down, loop, follow the chords, get MIDI… (more is to come; feedback is welcome). The
 project is at an early stage. It is written in Python and runs locally on your own computer; there is no mobile
-version yet, and no hosted web version. Right now it already helps a lot with transcribing **vocals**, **bass**,
-**keys** and **drums**; for **guitar** it so far only extracts the guitar's sound and shows each bar's chord (and
-the song's key). The guitar part still has to be worked out by ear in the end, but this already helps a great deal!
+version yet, and no hosted web version.
+
+Right now it already helps a lot with separating the **vocals** and transcribing their melody, and with
+transcribing the **bass**, **keys** and **drums**: put in an MP3 and you get, more or less automatically, a Guitar
+Pro score. **Guitar** transcription, though, is so far limited to extracting the guitar's sound and analysing each
+bar's chord (and the song's key); the actual notes still have to be worked out by ear, but this already saves a
+lot of effort!
+
+OpenMusic is developed with the help of Claude Code. At its core is an analysis pipeline: it chains excellent
+open-source tools and pre-trained models from GitHub (separation, beats, key, transcription), and adds a drum
+transcription model we trained ourselves, a Guitar Pro export and a practice player, **taking a song from audio
+all the way to a score you can practise with and read**. The project is at a very early stage; next we plan to
+look into separating several guitars (e.g. lead and rhythm guitar). Interested developers are very welcome to join
+in: stars, forks, issues and pull requests are all appreciated 🤝
 
 ## How it works
 
