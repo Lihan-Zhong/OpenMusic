@@ -8,9 +8,9 @@
 
 OpenMusic is an open-source tool for musicians to **practise** and **transcribe** songs: it splits a song into 6
 stems (vocals / drums / bass / guitar / piano / other), and a **local HTML page** is where you work with them:
-adjust the volumes, slow down, loop, follow the chords, get MIDI… (more is to come; feedback is welcome). The
-project is at an early stage. It is written in Python and runs locally on your own computer; there is no mobile
-version yet, and no hosted web version.
+adjust the volumes, slow down, loop, follow the chords, get MIDI… (more is to come; feedback is welcome). It
+is written in Python and runs locally on your own computer; there is no mobile version yet, and no hosted web
+version.
 
 Right now it already helps a lot with separating the **vocals** and transcribing their melody, and with
 transcribing the **bass**, **keys** and **drums**: put in an MP3 and you get, more or less automatically, a Guitar
