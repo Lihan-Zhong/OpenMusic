@@ -119,7 +119,7 @@ Once a song is split into stems, practise with it in a local web page:
   notes. Below the piano roll there is also the whole song as a Guitar Pro file.
 - **Drums**: the drum stem becomes a [General MIDI](https://en.wikipedia.org/wiki/General_MIDI) drum track (kick,
   snare, closed and open hi-hat, three toms, crash, ride); choose "Drums" in the note view to see one row per kit
-  piece. Kick and snare are the most accurate ([F-score](https://en.wikipedia.org/wiki/F-score) about 0.9 / 0.8
+  piece. Kick and snare are the most accurate (**F-score** about 0.9 / 0.8
   on real recordings split from the mix), hi-hat is a draft, toms and cymbals are hints; with the optional
   ADTOF-pytorch plugin (see "[Optional plugin](#optional-plugin-adtof-pytorch-drum-transcription)" below) hi-hat
   and cymbals are much better. How it works, the options we looked at and the scores are in
@@ -179,8 +179,8 @@ a player opened through `http.server` it is a link that downloads the stored sco
   one. Notes that start together form a chord, held at most until the next note starts; gaps under half a beat
   (a beat for the vocal melody) are closed, so there are fewer stray rests.
 - **Frets**: every playable fingering of each chord is listed (one note per string, the fretting hand spanning at
-  most 4 frets on guitar and 3 on bass), and [dynamic programming](https://en.wikipedia.org/wiki/Dynamic_programming)
-  picks the path over the whole song with the least hand movement and no crossed strings (a higher note on a
+  most 4 frets on guitar and 3 on bass), and a **dynamic programming**
+  algorithm picks the path over the whole song with the least hand movement and no crossed strings (a higher note on a
   thicker string than a lower one), position changes being cheaper after long notes, and slightly prefers low
   positions. Notes that cannot be played together lose the softest first. When at least 8 notes, and 1 % of them,
   lie one or two semitones below the lowest string (D, D#), guitar or bass switches to drop D.
