@@ -6,7 +6,7 @@
 >
 > This project uses Chinese as its default language and also supports English: see [README.en.md](README.en.md) for the English README, and switch the language of the workbench and practice-player pages with "中文 / English" at the top right.
 
-OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把一首歌拆成人声 / 鼓 / 贝斯 / 吉他 / 钢琴 / 其他 6 条音轨，使用**本地 HTML 网页**作为可视化工具，用户可以在里面自由地调节音量、变速、循环、看和弦、转 MIDI……（更多功能有待开发，期待更多的用户反馈）。本项目使用 Python 语言搭建，在自己的电脑上本地运行，暂时还没有适配手机，也没有部署成在线网页。
+OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把一首歌拆成人声 / 鼓 / 贝斯 / 吉他 / 钢琴 / 其他 6 条音轨，使用**本地 HTML 网页**作为可视化工具，用户可以在里面自由地调节音量、变速、循环、看和弦、转 MIDI……（更多功能有待开发，期待更多的用户反馈）本项目使用 Python 语言搭建，在自己的电脑上本地运行，暂时还没有适配手机，也没有部署成在线网页。
 
 目前，它对**人声**的分离+旋律扒谱，以及**贝斯**、**键盘**、**架子鼓**的扒谱已经很有帮助：基本可以做到输入一首 MP3，自动得到一份 Guitar Pro 乐谱。不过，目前**吉他**扒谱还仅限于把吉他的声音单独提取出来，并分析出每小节的和弦（以及整首歌的调）；具体的音最终还得靠耳朵去扒，但这样已经省力很多了！
 
