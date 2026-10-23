@@ -23,13 +23,23 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 - **第三步：音频分轨扒谱** **人声**、**贝斯**、**吉他**、**钢琴/键盘**和**其他** 5 条分轨用 **[Basic Pitch](https://github.com/spotify/basic-pitch)** 工具实现 MP3 转 MIDI；**鼓**用自带的鼓谱模型，或使用可选外挂模型 **[ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch)**（效果更佳，但它的模型权重只能非商业使用，和本项目的 AGPL-3.0 协议不兼容，所以不随项目发布；本项目提供安装方法，见「[可选外挂](#可选外挂adtof-pytorch-扒鼓)」，装好后会自动使用）来实现 MP3 转 MIDI。本项目随后也提供了 MIDI 转 [Guitar Pro](https://www.guitar-pro.com/) 的生成代码，因此在MIDI转换完毕后，可以直接一键生成 Guitar Pro 乐谱工程文件（见「[Guitar Pro 谱](#guitar-pro-谱)」）。转 MIDI 的时候，我们会用到**第二步**分析得到的**拍子**和**小节线**（图中的虚线「拍子」），所以 MIDI、Guitar Pro 谱和练习播放器的小节线都是对齐的。只是歌曲第一个重拍之前的那一小段（弱起）在播放器里叫第 0 小节，在 MIDI 和 Guitar Pro 里是第 1 小节，所以那边的小节号通常比播放器大 1（见「[Guitar Pro 谱](#guitar-pro-谱)」）。
 - **第四步：练习播放器和乐谱导出** 练习播放器直接播放分轨的音频，我们不仅提供每条分轨的音量调节、静音和独奏，还提供了循环、变速等功能（详见「[**练习播放器**](#练习播放器练琴扒谱用)」一节），极大地方便了乐手练琴！导出 Guitar Pro 谱时，还可以在谱里垫一条分轨混成的音频轨，下载时选择，默认人声 + 吉他 + 其他（图中的虚线「音频」）。
 
-## 快速开始
+## 最简单的快速开始🚀
+1. 打开你喜欢的 AI Agent（例如 ChatGPT Work、Claude Code、Cursor、OpenCode、WorkBuddy、DeepSeek Harness、ZCode、Kimi code等）。
+2. 将[本项目的 GitHub 仓库链接](https://github.com/Lihan-Zhong/OpenMusic/tree/main)发送给 Agent，并输入：🔍
+    > 请阅读这个 GitHub 项目:https://github.com/Lihan-Zhong/OpenMusic/tree/main
+    > 按照项目文档帮我完成仓库克隆、环境配置、依赖安装和首次运行。
+3. 按照 Agent 的指引完成必要的授权或确认，克隆本仓库，然后下载+安装相应的环境依赖，装上外挂：[ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch)（可选，模型权重仅限非商业使用），获得满血能力🔥
+4. 直接双击项目文件夹里的 **`OpenMusic.command`**（Windows 上双击 **`OpenMusic.bat`**），立刻启动🚀
+
+💡 提示：如果你更喜欢手动安装，也可以自行克隆仓库，按照下面「[手动开始](#手动开始)」一节来。
+
+## 手动开始
 
 1. 按下面「[安装](#安装)」一节装好环境。
 2. 打开工作台：在访达里双击项目文件夹里的 **`OpenMusic.command`**（Windows 上双击 **`OpenMusic.bat`**）。会弹出一个终端窗口，浏览器自动打开 http://localhost:8780 ；工作台已经开着的话，只是在浏览器里打开它。也可以在终端里运行 `.venv/bin/python experiments/app.py`。
 3. 把一首 mp3 拖进网页，选一个分轨模型，点「一键处理」，处理完点「打开」进入练习播放器。
 
-**日常使用**：
+## 日常使用
 - 想处理的歌直接放进 `songs/` 文件夹就行，几秒内会出现在工作台里；放了好几首时，先选好分轨模型，再点列表上方的「全部一键处理」，它们会一首接一首处理，一次只跑一个任务。
 - 分好的音轨是 MP3（一首歌 6 轨加上分析、MIDI 和 Guitar Pro 谱大约 15–70 MB）；要无损的 FLAC，在终端里运行 `.venv/bin/python experiments/evaluate_multi.py demucs6 --full --no-score --lossless`（用 RoFormer 就把 `demucs6` 换成 `roformer_sw`；工作台里没有这个选项）。
 - 用完关掉那个终端窗口（或在里面按 Ctrl+C），工作台就停了；正在跑的任务也会停下，下次在中断的那一步点「运行」（做过的步骤按钮叫「重做」），后面的步骤再点「一键处理」接着做。

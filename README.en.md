@@ -58,7 +58,23 @@ step can also be redone on its own, or run in a terminal (see "[**Practice playe
   all to make practising easier! A Guitar Pro export can also carry a mix of stems as an audio track, chosen when
   you download it, by default vocals + guitar + other (the dashed "audio" line).
 
-## Quick start
+## The easiest way to start 🚀
+1. Open your favourite AI agent (e.g. ChatGPT Work, Claude Code, Cursor, OpenCode, WorkBuddy, DeepSeek Harness,
+   ZCode, Kimi Code).
+2. Send it [this project's GitHub link](https://github.com/Lihan-Zhong/OpenMusic/tree/main) and and type: 🔍
+    > Please read this GitHub project: https://github.com/Lihan-Zhong/OpenMusic/tree/main
+    > Following its documentation, clone the repository, set up the environment, install the dependencies and run it for the first time.
+3. Follow the agent's guidance for any permissions or confirmations it asks for: it clones this repository,
+   downloads and installs the dependencies, and installs the plugin
+   [ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch) (optional; its model weights are for non-commercial
+   use only) for the full power 🔥
+4. Double-click **`OpenMusic.command`** in the project folder (on Windows, **`OpenMusic.bat`**), and it starts
+   right away 🚀
+
+💡 Tip: if you prefer to install by hand, clone the repository yourself and follow
+"[Starting by hand](#starting-by-hand)" below.
+
+## Starting by hand
 
 1. Set up the environment as in "[Installation](#installation)" below.
 2. Open the workbench: double-click **`OpenMusic.command`** in the project folder in Finder (on Windows,
@@ -66,7 +82,7 @@ step can also be redone on its own, or run in a terminal (see "[**Practice playe
    already running, it is just opened in the browser. In a terminal, `.venv/bin/python experiments/app.py` does the same.
 3. Drop an mp3 into the page, choose a separation model, click "Process all", then "Open" to go to the practice player.
 
-**Everyday use**:
+## Everyday use
 - Just put the songs you want to process into the `songs/` folder; they show up in the workbench within a few
   seconds. With several new songs, choose the separation model, then click "Process all (n not finished)" above
   the list: they are processed one after another, one job at a time.
