@@ -803,7 +803,8 @@ def stem_paths(song_dir, names=STEM_FILES):
 
 def original_path(song_dir):
     """songs/<song>.<ext>, the file the stems were split from, if it is there."""
-    return next((p for p in sorted(SONGS.glob(f"{song_dir.name}.*")) if p.stem == song_dir.name), None) \
+    # not SONGS.glob(name + ".*"): a glob reads "[Live]" in a song name as a character class
+    return next((p for p in sorted(SONGS.iterdir()) if p.is_file() and p.suffix and p.stem == song_dir.name), None) \
         if SONGS.is_dir() else None
 
 

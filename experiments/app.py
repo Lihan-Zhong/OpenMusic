@@ -26,6 +26,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -339,7 +340,7 @@ class Handler(SimpleHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8")
 
     def _host_ok(self):
-        # Refuse requests that name another host (DNS rebinding); the page itself always uses localhost.
+        # Refuse requests that name another host (DNS rebinding); the page itself uses localhost (127.0.0.1 on Windows).
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         return host in ("localhost", "127.0.0.1", "::1")
 
@@ -442,7 +443,8 @@ class Handler(SimpleHTTPRequestHandler):
             cmd = [sys.executable, str(ROOT / "experiments" / "export_gp.py"), str(root), f"--song={song}",
                    f"--audio={audio}", f"--out={tmp}"] + ([f"--stems={','.join(stems)}"] if audio == "stems" else [])
             env = dict(os.environ, PYTHONIOENCODING="utf-8")
-            done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace", env=env, timeout=300)
+            done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  env=env, timeout=300)
             data = Path(tmp).read_bytes() if done.returncode == 0 else b""
             if not data:
                 last = [line for line in (done.stderr or done.stdout).splitlines() if line.strip()][-1:]
@@ -503,18 +505,30 @@ class Handler(SimpleHTTPRequestHandler):
         return self._json({"ok": True, "name": name, "song": target.stem})
 
 
+# On Windows, localhost tries IPv6 (::1) first, where nothing listens, and each refused connection costs ~0.2 s, so
+# every request of the page waited that long: open the server's own IPv4 address there. Elsewhere keep localhost,
+# since the browser keeps the player's settings per address.
+HOST = "127.0.0.1" if sys.platform == "win32" else "localhost"
+
+
+class Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second socket bind a port that is already listening (macOS refuses), so a second
+    # workbench would share 8780 and take some of the requests. Without it the second bind fails, as on macOS.
+    allow_reuse_address = sys.platform != "win32"
+
+
 def other_workbench(port, include_own=False):
     """The URL of another workbench already running on this computer, if any (one heavy job at a time)."""
-    for p in range(8780, 8800):
-        if p == port and not include_own:
-            continue
+    def running(p):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{p}/api/state", timeout=0.2) as r:
-                if r.status == 200 and b'"libraries"' in r.read(200000):
-                    return f"http://localhost:{p}/"
+                return r.status == 200 and b'"libraries"' in r.read(200000)
         except (OSError, ValueError):
-            pass
-    return None
+            return False
+    ports = [p for p in range(8780, 8800) if p != port or include_own]
+    with ThreadPoolExecutor(len(ports)) as pool:  # all at once: a refused port takes ~0.2 s on Windows, 4 s in turn
+        found = [p for p, ok in zip(ports, pool.map(running, ports)) if ok]
+    return f"http://{HOST}:{found[0]}/" if found else None
 
 
 def main():
@@ -537,11 +551,17 @@ def main():
     Handler.jobs = Jobs()
     threading.Thread(target=lambda: Handler.hardware.update(gpu=detect_hardware()), daemon=True).start()
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+        server = Server(("127.0.0.1", args.port), Handler)
     except OSError as e:
+        other = other_workbench(args.port, include_own=True) if args.reuse else None
+        if other:  # started twice at once, and the other one took the port
+            print(f"OpenMusic workbench is already running: {other} / 工作台已经在运行：{other}", flush=True)
+            if not args.no_browser:
+                webbrowser.open(other)
+            return
         sys.exit(f"Port {args.port} is in use by another program ({e}); try --port {args.port + 1}. / "
                  f"端口 {args.port} 被别的程序占用了，可以加 --port {args.port + 1} 换一个。")
-    url = f"http://localhost:{args.port}/"
+    url = f"http://{HOST}:{args.port}/"
     print(f"OpenMusic workbench: {url}  (Ctrl+C to stop)", flush=True)
     if not args.no_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
@@ -569,6 +589,7 @@ def main():
 
 PAGE = r"""<!doctype html>
 <html lang=zh><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=icon href="data:,">
 <title>OpenMusic 工作台</title>
 <style>
 :root{--bg:#fbfaf8;--fg:#1d1d1f;--muted:#6b6b70;--card:#fff;--line:#e4e2dd;--accent:#b4451f;--on-accent:#fff;--ok:#2f7d4f;--warn:#a86b00;--bad:#b3261e;--chip:#f1efea}

@@ -306,6 +306,7 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>OpenMusic · __TITLE__</title>
 <style>
 :root { --bg:#f6f6f3; --panel:#ffffff; --panel2:#f0f0ec; --text:#1c1c1e; --muted:#6c6c72; --line:#e2e2dd;

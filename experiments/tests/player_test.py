@@ -3,6 +3,7 @@
     python experiments/tests/player_test.py                  # sync, timing, metronome, limiter, UI checks (~1 min)
     python experiments/tests/player_test.py --engine stems   # the same with one stretcher per stem
     python experiments/tests/player_test.py --browser webkit # the same in Safari's engine (see below)
+    python experiments/tests/player_test.py --browser msedge # the same in the installed Microsoft Edge, no download
     python experiments/tests/player_test.py --cpu            # + render cost and per-stem fidelity of both engines
     python experiments/tests/player_test.py --memory         # + memory, CPU and limiter with the real 6:45 song
     python experiments/tests/player_test.py --screens        # + screenshots (zh/en, 1280 and 390 px wide)
@@ -10,6 +11,8 @@
 Needs the dev requirements (requirements-dev.txt) and Playwright's Chromium inside the project:
     PLAYWRIGHT_BROWSERS_PATH=.cache/ms-playwright .venv/bin/python -m playwright install chromium --only-shell
     (and `... playwright install webkit`, 78 MB download, for --browser webkit)
+On Windows, --browser msedge drives the Edge that comes with Windows (Chromium too, and signed by Microsoft, so
+Smart App Control lets it run, unlike Playwright's own Chromium build).
 Writes test songs, their pages and the screenshots to outputs/_player_test/ (git-ignored); --cpu, --memory and
 --screens also use the real songs in outputs/mp3. Audio is muted; an AudioWorklet in the page records every stem
 after its fader (plus the metronome and the output), and the recordings are compared with the transport's
@@ -1007,7 +1010,7 @@ def run_screens(browser, base, problems):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", default=build_player.ENGINE, choices=("stems", "multi"))
-    parser.add_argument("--browser", default="chromium", choices=("chromium", "webkit"))
+    parser.add_argument("--browser", default="chromium", choices=("chromium", "msedge", "webkit"))
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--memory", action="store_true")
     parser.add_argument("--screens", action="store_true")
@@ -1021,7 +1024,8 @@ def main():
     report, checks, problems = {}, {}, []
     with serve(SONGS) as base, sync_playwright() as p:
         browser = (p.webkit.launch() if args.browser == "webkit" else
-                   p.chromium.launch(args=["--mute-audio", "--autoplay-policy=no-user-gesture-required"]))
+                   p.chromium.launch(channel="msedge" if args.browser == "msedge" else None,
+                                     args=["--mute-audio", "--autoplay-policy=no-user-gesture-required"]))
         try:
             if not args.skip_sync:
                 report["sync"], c = run_sync(browser, base, args.engine, problems)

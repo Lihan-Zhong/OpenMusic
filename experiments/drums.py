@@ -199,7 +199,8 @@ def transcribe_adtof(path, y, command):
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "adtof.mid"
         run = subprocess.run([str(command), "--audio", str(path), "--out", str(out), "--device", "cuda"],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             env=dict(os.environ, PYTHONIOENCODING="utf-8"))  # not the locale's code page (GBK)
         if run.returncode or not out.is_file():
             raise RuntimeError(f"{command} failed: {(run.stderr or run.stdout).strip()[-500:]}")
         times, classes, t = [], [], 0.0
