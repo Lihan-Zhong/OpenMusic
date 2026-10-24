@@ -21,3 +21,6 @@ plugins/
 # Generated from experiments/build_page.py
 compare.html
 compare.en.html
+
+# Private notes for Claude Code (the owner's machines and preferences); project instructions are in AGENTS.md
+CLAUDE.local.md

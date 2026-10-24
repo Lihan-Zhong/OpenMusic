@@ -2,9 +2,10 @@
 
     .venv/bin/python docs/screenshots/shoot.py
 
-Needs the songs below processed in outputs/demucs6_full (split, analysed, transcribed, player built). It starts a
-workbench of its own on PORT, shows only SONGS in its list, opens PLAYER_SONG in the practice player with an A-B
-loop and the drum lane, and takes the pictures with the Playwright Chromium from requirements-dev.txt.
+Needs the songs below processed in outputs/<LIBRARY> (split, analysed, transcribed, player built). It starts a
+workbench of its own on PORT, opens the library's tab and shows only SONGS in its list, opens PLAYER_SONG in the
+practice player with an A-B loop and the drum lane, and takes the pictures with the Playwright Chromium from
+requirements-dev.txt.
 """
 import os
 import subprocess
@@ -21,7 +22,8 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(ROOT / ".cache" / "ms-play
 from playwright.sync_api import sync_playwright
 
 PORT = 8792
-SONGS = ("Crayon Case - Surabaya", "想想XiangXiang - 第二张专辑的intro", "Chinese Football - 四月物语")
+LIBRARY, TAB = "roformer_sw_full", "roformer_sw"   # outputs/<LIBRARY>, and its tab in the workbench (data-k)
+SONGS =("Crayon Case - Surabaya", "想想XiangXiang - 第二张专辑的intro", "Chinese Football - 四月物语")
 PLAYER_SONG, ROLL = "Crayon Case - Surabaya", "drums"
 LOOP, AT = (17.6, 22.9), 19.6          # seconds: the loop is snapped to bars; the playhead inside it
 VIEWPORT, SCALE = {"width": 1280, "height": 900}, 1.5
@@ -37,6 +39,8 @@ def clip(page, top, bottom, pad=16):
 def workbench(page, lang):
     page.goto(f"http://127.0.0.1:{PORT}/?lang={lang}")
     page.wait_for_function("/(Apple GPU|NVIDIA GPU|CPU)/.test(document.body.innerText)", timeout=120000)
+    page.click(f"button[data-k={TAB}]")
+    page.wait_for_timeout(500)
     page.evaluate("""songs => { for (const tr of document.querySelectorAll('tbody tr'))
                                   if (!songs.some(s => tr.textContent.includes(s))) tr.remove(); }""", list(SONGS))
     page.screenshot(path=str(HERE / f"workbench.{lang}.png"), full_page=True, clip=clip(page, "header", "tbody tr >> nth=-1"))
@@ -44,7 +48,7 @@ def workbench(page, lang):
 
 def player(page, lang):
     name = "player.html" if lang == "zh" else "player.en.html"
-    page.goto(f"http://127.0.0.1:{PORT}/outputs/demucs6_full/{name}?song=" + urllib.parse.quote(PLAYER_SONG))
+    page.goto(f"http://127.0.0.1:{PORT}/outputs/{LIBRARY}/{name}?song=" + urllib.parse.quote(PLAYER_SONG))
     page.wait_for_function("document.documentElement.dataset.ready === '1'", timeout=120000)
     box = page.locator("#wave").bounding_box()
     duration = page.evaluate("() => window.player.tr.duration")

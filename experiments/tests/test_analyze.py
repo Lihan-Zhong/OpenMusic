@@ -13,7 +13,7 @@ The first run synthesizes the songs (about 2.5 minutes, 320 MB) under outputs/_a
       key, tempo and tuning: strummed guitar ("rock" songs: overdriven, with some power chords), an optional
       pad, a bass line, a sung-like melody with passing notes and vibrato, drums and vocals leaking into the
       guitar, room reverb; 7th, sus, dim and slash chords, and some borrowed chords.
-      "train" songs were used to choose analyze.py's settings; "test" songs are only scored (CLAUDE.md).
+      "train" songs were used to choose analyze.py's settings; "test" songs are only scored (AGENTS.md).
   edge/<name>/  cut from key/major_E: 2 s long, silent, drums only, no bass, faint noise as the bass stem
 Beat grid: made-up beat-tracker output with known true beats and bars (extra and missed beats, near-duplicates,
 half / double / quadruple time, a break, stray and unsure downbeats, a real 2/4 bar, a real tempo change) through
@@ -590,7 +590,7 @@ def ensure_songs(remake):
 
 def quick():
     """A subset with thresholds a little below what the current settings reach, so a regression fails. Only
-    train songs: the test songs are scored once, with --full, after the settings are fixed (CLAUDE.md)."""
+    train songs: the test songs are scored once, with --full, after the settings are fixed (AGENTS.md)."""
     failures = check_helpers() + check_beat_grid() + check_edges()
     ok, total = check_tempo()
     if ok < total:
