@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, wri
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { rewriteHtml, rewriteJson, rewriteGpBody } from "./lib/rewrite.js";
 
 const STEPS = ["split", "analyze", "transcribe", "gp", "player"];
 const STEP_LABEL = { split: "split", analyze: "analyze", transcribe: "MIDI", gp: "Guitar Pro", player: "player" };
@@ -566,19 +567,6 @@ function panelSetupPage() {
   );
 }
 
-/** Point the workbench page's root-absolute URLs at our same-origin prefix so the page works inside DSH. */
-function rewriteHtml(text) {
-  return text
-    .replace(/(["'`])\/api\//g, "$1/openmusic/api/")
-    .replace(/(["'`])\/outputs\//g, "$1/openmusic/outputs/")
-    .replace(/href=(["'])\/\?lang=/g, "href=$1/openmusic/app?lang=");
-}
-
-/** /api/state returns absolute /outputs/... links; the player and MIDI links must stay inside the prefix. */
-function rewriteJson(text) {
-  return text.replace(/"\/outputs\//g, '"/openmusic/outputs/');
-}
-
 async function forwardToWorkbench(request, target, upstreamPath) {
   const headers = new Headers();
   for (const [name, value] of request.headers) {
@@ -591,19 +579,7 @@ async function forwardToWorkbench(request, target, upstreamPath) {
   let body;
   if (request.method !== "GET" && request.method !== "HEAD") {
     body = Buffer.from(await request.arrayBuffer());
-    if (upstreamPath === "/api/gp" && body.length > 0) {
-      // The player names its library as "outputs/<library>" (or "openmusic/outputs/<library>" through the
-      // proxy); /api/gp expects the path relative to the project.
-      try {
-        const data = JSON.parse(body.toString("utf8"));
-        if (typeof data.root === "string" && data.root.startsWith("openmusic/")) {
-          data.root = data.root.slice("openmusic/".length);
-          body = Buffer.from(JSON.stringify(data));
-        }
-      } catch {
-        // Not JSON: forward the body untouched.
-      }
-    }
+    if (upstreamPath === "/api/gp") body = rewriteGpBody(body);
   }
 
   const slow = upstreamPath === "/api/gp" || upstreamPath.startsWith("/api/upload");
@@ -656,6 +632,7 @@ async function panelInfo(ctx, url) {
   return panelJson({
     root,
     running: Boolean(running),
+    terminal: process.platform === "darwin" || process.platform === "win32",
     url: running?.url ?? null,
     ...(error ? { error } : {}),
   });

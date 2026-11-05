@@ -1,10 +1,13 @@
 {
   "name": "openmusic-dsh",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Drive the local OpenMusic practice and transcription pipeline from a DeepSeek Harness session",
   "type": "module",
   "license": "AGPL-3.0",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -14,6 +17,7 @@
   "files": [
     "index.js",
     "client.js",
+    "lib/*.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

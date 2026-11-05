@@ -80,8 +80,9 @@ and keep changes small and focused.
   package). basic-pitch is installed with `--no-deps` (requirements-nodeps.txt).
 - docs/flow/render.py redraws the README diagram, docs/screenshots/shoot.py retakes the README screenshots (both
   need the dev requirements).
-- `dsh/` has no test runner: syntax-check with `node --check dsh/index.js`, then install the directory as a bundle
-  and exercise `openmusic_status` against the running workbench; do not run a heavy split just to test it.
+- `dsh/`: `node --test dsh/test/*.test.mjs` checks the proxy's URL/body rewrites (no dependencies); then install
+  the directory as a bundle and exercise `openmusic_status` against the running workbench. Do not run a heavy
+  split just to test it.
 
 ## Known gaps
 - Chord extensions (7, sus, ...) are hints; key and chords are right roughly 70–80% of the time.

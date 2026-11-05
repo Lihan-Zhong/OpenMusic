@@ -13,11 +13,15 @@
 ## 装法
 
 1. 先按主 [README](../README.md) 把 OpenMusic 的 Python 环境装好（`.venv` 里有依赖，`songs/` 里有歌，能双击 `OpenMusic.command` 打开工作台）。
-2. 让 DeepSeek Harness 里的 agent 安装这个 bundle：
+2. 让 DeepSeek Harness 里的 agent 安装这个 bundle（二选一）：
+
+   > 用 plugin_manager 安装 https://github.com/Lihan-Zhong/OpenMusic/releases/download/dsh-v0.3.0/openmusic-dsh-0.3.0.tgz
+
+   或者先克隆仓库，装本地目录：
 
    > 用 plugin_manager 把 `<OpenMusic 文件夹>/dsh` 这个目录作为 bundle 安装。
 
-   等价地，在支持本地 bundle 的 Harness 设置 → 插件里选择这个目录。它没有 npm 依赖，装完就能用。
+   它没有 npm 依赖，装完就能用。Release 里的 tarball 就是 `pnpm pack` 出来的安装包，不想克隆整个仓库时用。如果 Harness 的安装器只接受本地目录，把 tarball 解压后指向解压出来的目录即可。
 3. 新开（或继续）一个**工作目录在 OpenMusic 文件夹里**的会话，然后直接说：
 
    > 看看我的曲库
@@ -74,11 +78,19 @@
 - 桌面端本地使用：需要装好 OpenMusic 的 Python 环境，模型权重还是第一次运行时下载到 `.cache/`；手机和在线网页版仍然没有。
 - 插件不会把 Python 打进 Harness，也不会替用户跑安装；环境没装好时工具会报错并提示先装环境。
 - 页面里的播放器是一个同源 iframe（音频处理仍跑在它自己的页面里），所以它的配色跟随 OpenMusic 自己的浅色/深色，而不是 Harness 主题；这是为了不重写播放器。
-- 第一次打开页面时如果找不到项目目录（没有正在跑的工作台、会话也不在 OpenMusic 文件夹里），页面会让你填一次路径，记在这个浏览器里。
+- 第一次打开页面时如果找不到项目目录（没有正在跑的工作台、会话也不在 OpenMusic 文件夹里），页面会让你填一次路径（也可以点「浏览…」选文件夹），记在这个浏览器里。
 - 插件在终端窗口里启动的工作台是一个普通的前台进程：DSH 退出时**不会**替你关它，看完按那个窗口的 Ctrl+C 就停。这样不会有看不见的后台进程，也不会把正在跑的任务悄悄带走。
 - 没有终端可用的兜底情况下，工作台才记在 `.cache/dsh-openmusic/workbench.json`，DSH 正常退出时收到 `SIGTERM`（Windows 上连子进程一起结束），也可以用 `openmusic_stop` 停；热重载/重启后能凭这个文件认领。
 - 如果 DSH 被强制杀掉，退出钩子不会执行；下次打开面板或调用工具时会认领那个后台工作台，并在下一次正常退出时停掉它。也可以按 `workbench.json` 里的 PID 手动 `kill`。
 - 许可：AGPL-3.0，和 OpenMusic 仓库一致。
+
+## 开发
+
+代理对页面的改写（`/api/`、`/outputs/`、播放器的「工作台」链接、`/api/gp` 的 root 前缀）有单元测试，不需要任何依赖：
+
+```bash
+node --test test/*.test.mjs     # 或在 dsh/ 里 pnpm test
+```
 
 ---
 
@@ -89,11 +101,17 @@ A DeepSeek Harness bundle for OpenMusic. It puts the **installed** app into a DS
 ### Install
 
 1. Install OpenMusic's Python environment first (see the main [README](../README.en.md)); the `.venv` must exist and `OpenMusic.command` must be able to start the workbench.
-2. Ask the agent in DeepSeek Harness to install the bundle:
+2. Ask the agent in DeepSeek Harness to install the bundle (either way):
+
+   > Install https://github.com/Lihan-Zhong/OpenMusic/releases/download/dsh-v0.3.0/openmusic-dsh-0.3.0.tgz as a bundle with plugin_manager.
+
+   or, from a clone:
 
    > Install the directory `<OpenMusic>/dsh` as a bundle with plugin_manager.
 
-   The package has no npm dependencies.
+   The package has no npm dependencies. The release tarball is the `pnpm pack` package for people who do not
+   want to clone the whole repository; if the installer only accepts a directory, extract it and point at that
+   directory.
 3. Open a session whose working directory is the OpenMusic folder and ask, for example, "show my library", "split, transcribe and export song X", or "open the practice player for song X".
 
 ### Tools
@@ -110,4 +128,13 @@ It probes ports 8780–8799 for a running workbench. If there is none, it opens 
 
 ### Limits
 
-The page needs the OpenMusic Python environment and a running workbench. When none is running and the plugin can open a terminal, that window is a normal foreground process: it is not closed when the Harness exits — press Ctrl+C in it. In the no-terminal fallback the workbench is recorded in `.cache/dsh-openmusic/workbench.json`, gets `SIGTERM` when the Harness exits (on Windows its child processes are ended too), and `openmusic_stop` stops it. If the Harness is force-killed the exit hook cannot run; opening the page again adopts that background workbench, and the next normal exit stops it — or kill the PID in `workbench.json` by hand. The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
+The page needs the OpenMusic Python environment and a running workbench. When none is running and the plugin can open a terminal, that window is a normal foreground process: it is not closed when the Harness exits — press Ctrl+C in it. In the no-terminal fallback the workbench is recorded in `.cache/dsh-openmusic/workbench.json`, gets `SIGTERM` when the Harness exits (on Windows its child processes are ended too), and `openmusic_stop` stops it. If the Harness is force-killed the exit hook cannot run; opening the page again adopts that background workbench, and the next normal exit stops it — or kill the PID in `workbench.json` by hand. On first use, if no project folder is found, the page asks for one (or use Browse…). The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
+
+### Development
+
+The proxy rewrites (`/api/`, `/outputs/`, the player's workbench link, the `/api/gp` root prefix) have unit tests
+and need no dependencies:
+
+```bash
+node --test test/*.test.mjs     # or pnpm test in dsh/
+```

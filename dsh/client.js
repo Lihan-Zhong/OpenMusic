@@ -56,8 +56,19 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function Setup({ initial, error, busy, onOpen, onCancel }) {
+    function Setup({ initial, error, busy, onOpen, onCancel, pickFolder }) {
       const [value, setValue] = React.useState(initial || "");
+      const [picking, setPicking] = React.useState(false);
+      const browse = async () => {
+        if (!pickFolder) return;
+        setPicking(true);
+        try {
+          const picked = await pickFolder();
+          if (picked) setValue(picked);
+        } finally {
+          setPicking(false);
+        }
+      };
       return h(
         "div",
         {
@@ -79,27 +90,35 @@ window.__ModuleLoader__.load({
           { style: { margin: 0, maxWidth: 460, color: COLORS.muted, fontSize: 13, lineHeight: 1.6 } },
           "填写 OpenMusic 项目文件夹（里面有 experiments/app.py）。插件会启动或复用工作台，原来的 Python 流程和网页都不改。",
         ),
-        h("input", {
-          value,
-          autoFocus: true,
-          spellCheck: false,
-          placeholder: "/Users/you/OpenMusic",
-          onChange: (event) => setValue(event.target.value),
-          onKeyDown: (event) => {
-            if (event.key === "Enter") onOpen(value);
-          },
-          style: {
-            width: "min(520px, 90%)",
-            boxSizing: "border-box",
-            border: `1px solid ${COLORS.border}`,
-            background: COLORS.bg,
-            color: COLORS.text,
-            borderRadius: 8,
-            padding: "8px 10px",
-            font: "inherit",
-            fontSize: 13,
-          },
-        }),
+        h(
+          "div",
+          { style: { display: "flex", gap: 8, width: "min(520px, 90%)" } },
+          h("input", {
+            value,
+            autoFocus: true,
+            spellCheck: false,
+            placeholder: "/Users/you/OpenMusic",
+            onChange: (event) => setValue(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === "Enter") onOpen(value);
+            },
+            style: {
+              flex: 1,
+              minWidth: 0,
+              boxSizing: "border-box",
+              border: `1px solid ${COLORS.border}`,
+              background: COLORS.bg,
+              color: COLORS.text,
+              borderRadius: 8,
+              padding: "8px 10px",
+              font: "inherit",
+              fontSize: 13,
+            },
+          }),
+          pickFolder
+            ? h("button", { style: buttonStyle, disabled: picking || busy, onClick: browse }, picking ? "…" : "浏览…")
+            : null,
+        ),
         h(
           "div",
           { style: { display: "flex", gap: 8 } },
@@ -110,7 +129,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function Panel() {
+    function Panel({ pickFolder }) {
       const [loading, setLoading] = React.useState(true);
       const [root, setRoot] = React.useState(() => {
         try {
@@ -123,6 +142,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState("");
       const [busy, setBusy] = React.useState(false);
       const [nonce, setNonce] = React.useState(0);
+      const [hint, setHint] = React.useState(false);
 
       React.useEffect(() => {
         let alive = true;
@@ -132,6 +152,7 @@ window.__ModuleLoader__.load({
             if (!alive) return;
             if (info.root) {
               setRoot(info.root);
+              setHint(!info.running && Boolean(info.terminal));
               try {
                 localStorage.setItem(ROOT_KEY, info.root);
               } catch {
@@ -165,6 +186,7 @@ window.__ModuleLoader__.load({
           }
           setRoot(info.root);
           setSetup(false);
+          setHint(!info.running && Boolean(info.terminal));
           setNonce((value) => value + 1);
           try {
             localStorage.setItem(ROOT_KEY, info.root);
@@ -234,6 +256,30 @@ window.__ModuleLoader__.load({
           ),
           h("button", { style: buttonStyle, title: "更换 OpenMusic 项目文件夹", onClick: () => setSetup(true) }, "目录"),
         ),
+        hint && !loading && !setup && root
+          ? h(
+              "div",
+              {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "4px 10px",
+                  background: COLORS.layer,
+                  borderBottom: `1px solid ${COLORS.border}`,
+                  color: COLORS.muted,
+                  fontSize: 12,
+                  flex: "0 0 auto",
+                },
+              },
+              h(
+                "span",
+                { style: { flex: 1, minWidth: 0 } },
+                "工作台没有在运行：已在新的终端窗口里启动它；要停止，请按那个窗口的 Ctrl+C。",
+              ),
+              h("button", { style: buttonStyle, onClick: () => setHint(false) }, "知道了"),
+            )
+          : null,
         loading
           ? h(
               "div",
@@ -246,6 +292,7 @@ window.__ModuleLoader__.load({
                 error,
                 busy,
                 onOpen: open,
+                pickFolder,
                 onCancel: () => {
                   if (root) setSetup(false);
                   else setError("");
@@ -256,15 +303,20 @@ window.__ModuleLoader__.load({
                 src: url,
                 title: "OpenMusic",
                 allow: "autoplay",
+                onLoad: () => setHint(false),
                 style: { flex: 1, width: "100%", minHeight: 0, border: 0, display: "block", background: "#fff" },
               }),
       );
     }
 
     return {
-      inject: ["slots"],
+      inject: ["slots", "uiWorkspace"],
       apply(ctx) {
-        ctx.slots.inject("main", () => ctx.slots.register({ name: "main", key: "openmusic" }, Panel));
+        const pickFolder = () => ctx.uiWorkspace.pickDirectory();
+        function PanelHost() {
+          return h(Panel, { pickFolder });
+        }
+        ctx.slots.inject("main", () => ctx.slots.register({ name: "main", key: "openmusic" }, PanelHost));
         ctx.slots.inject("sidebar.panellist", () =>
           ctx.slots.register(
             { name: "sidebar.panellist", id: "openmusic", order: 20, label: () => "OpenMusic" },
