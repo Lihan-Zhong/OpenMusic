@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "title": "OpenMusic",
+    "description": "Drive the local OpenMusic practice and transcription pipeline from a session: song status, split, analysis, MIDI, Guitar Pro and the practice player."
+  },
+  "tools": {
+    "status": "Show songs, pipeline steps and jobs",
+    "process": "Split, analyse, transcribe and export a song",
+    "import": "Add an audio file to songs/",
+    "export_gp": "Build a Guitar Pro file with a chosen audio track",
+    "open": "Open the workbench or a song's practice player",
+    "stop": "Stop the workbench this plugin started"
+  }
+}

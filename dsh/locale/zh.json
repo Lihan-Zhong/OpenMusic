@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "title": "OpenMusic",
+    "description": "在会话里驱动本地 OpenMusic 的练琴、扒谱流程：歌曲状态、分轨、分析、MIDI、Guitar Pro 和练习播放器。"
+  },
+  "tools": {
+    "status": "查看歌曲、处理步骤和任务",
+    "process": "分轨、分析、扒谱并导出整首歌",
+    "import": "把音频文件加进 songs/",
+    "export_gp": "按所选音频轨生成 Guitar Pro 谱",
+    "open": "打开工作台或某首歌的练习播放器",
+    "stop": "停止这个插件启动的工作台"
+  }
+}

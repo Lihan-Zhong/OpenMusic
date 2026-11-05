@@ -61,6 +61,9 @@ and keep changes small and focused.
   methods by ear stays lossless FLAC. Keep stems sample-aligned.
 - Keep downloads inside the project: `common.py` sets TORCH_HOME / HF_HOME to `.cache/`; RoFormer weights go to
   `.cache/bs-roformer/`.
+- `dsh/` is a DeepSeek Harness bundle (Node, no npm dependencies) that drives the installed app from a session
+  through the workbench's own HTTP API; keep it a thin bridge (no pipeline logic in JavaScript, no behaviour
+  changes to `app.py`), and keep it AGPL-3.0 like the rest of the project.
 - Run scripts from the project root with the project venv (`.venv/bin/python`, on Windows `.venv\Scripts\python`).
   Tune only on the train split, and test once.
 - RoFormer needs over 6 GB of memory: run it on an NVIDIA GPU, and run at most one heavy model job at a time.
@@ -77,6 +80,8 @@ and keep changes small and focused.
   package). basic-pitch is installed with `--no-deps` (requirements-nodeps.txt).
 - docs/flow/render.py redraws the README diagram, docs/screenshots/shoot.py retakes the README screenshots (both
   need the dev requirements).
+- `dsh/` has no test runner: syntax-check with `node --check dsh/index.js`, then install the directory as a bundle
+  and exercise `openmusic_status` against the running workbench; do not run a heavy split just to test it.
 
 ## Known gaps
 - Chord extensions (7, sus, ...) are hints; key and chords are right roughly 70–80% of the time.

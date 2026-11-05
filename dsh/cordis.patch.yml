@@ -1,0 +1,4 @@
+# The OpenMusic bridge for DeepSeek Harness.  It registers agent tools only; no UI is contributed.
+- insert:
+    - id: openmusic-dsh
+      name: openmusic-dsh
