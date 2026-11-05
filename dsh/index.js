@@ -10,7 +10,7 @@
  * Everything here is standard-library Node: no npm dependencies, so the bundle installs as a plain directory.
  */
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writeFileSync, unlinkSync, chmodSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,7 +28,10 @@ const DEFAULT_PORTS = Array.from({ length: 20 }, (_, i) => 8780 + i);
  */
 const OWNED_KEY = Symbol.for("openmusic-dsh.owned-servers");
 const EXIT_KEY = Symbol.for("openmusic-dsh.exit-hook");
+const VISIBLE_KEY = Symbol.for("openmusic-dsh.terminal-servers");
 const ownedServers = process[OWNED_KEY] ?? (process[OWNED_KEY] = new Map());
+/** Workbenches the plugin opened in a Terminal / cmd window: the user stops those with Ctrl+C. */
+const terminalServers = process[VISIBLE_KEY] ?? (process[VISIBLE_KEY] = new Map());
 
 function workbenchStateFile(root) {
   return join(root, ".cache", "dsh-openmusic", "workbench.json");
@@ -259,7 +262,95 @@ function tail(file, bytes = 4000) {
   }
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+async function firstFreePort(preferredPort) {
+  const start = Number.isInteger(preferredPort) ? preferredPort : 8780;
+  for (let offset = 0; offset < 10; offset++) {
+    const port = start + offset;
+    if (await portFree(port)) return port;
+  }
+  throw new Error(`No free port in ${start}–${start + 9} for the OpenMusic workbench.`);
+}
+
+/** A small launcher the user can see and Ctrl+C, in the same spirit as OpenMusic.command / OpenMusic.bat. */
+function writeStartScript(root, python, port) {
+  const dir = join(root, ".cache", "dsh-openmusic");
+  mkdirSync(dir, { recursive: true });
+  if (process.platform === "win32") {
+    const file = join(dir, "start-workbench.bat");
+    const quote = (value) => `"${String(value).replace(/%/g, "%%").replace(/"/g, '""')}"`;
+    writeFileSync(
+      file,
+      `@echo off\r\ncd /d ${quote(root)}\r\n${quote(python)} experiments\\app.py --no-browser --port ${port}\r\n` +
+        `echo.\r\necho OpenMusic workbench stopped. Press any key to close.\r\npause >nul\r\n`,
+    );
+    return file;
+  }
+  const file = join(dir, "start-workbench.command");
+  writeFileSync(
+    file,
+    `#!/bin/sh\ncd ${shellQuote(root)} || exit 1\nexec ${shellQuote(python)} experiments/app.py --no-browser --port ${port}\n`,
+    { mode: 0o755 },
+  );
+  try {
+    chmodSync(file, 0o755);
+  } catch {
+    // The mode option above normally suffices.
+  }
+  return file;
+}
+
+/**
+ * Open the workbench in a Terminal (macOS) or cmd (Windows) window so the user can watch it and stop it with
+ * Ctrl+C.  Returns undefined only when a terminal could not be opened at all; once the window is open, a
+ * failure to start is reported instead of silently starting a second, hidden workbench.
+ */
+async function startVisibleWorkbench(root, preferredPort) {
+  if (process.platform !== "darwin" && process.platform !== "win32") return undefined;
+  const port = await firstFreePort(preferredPort);
+  const python = pythonFor(root);
+  const script = writeStartScript(root, python, port);
+  const url = `http://127.0.0.1:${port}`;
+  try {
+    if (process.platform === "darwin") {
+      execFileSync("open", ["-a", "Terminal", script], { stdio: "ignore" });
+    } else {
+      spawn("cmd.exe", ["/c", "start", "", script], {
+        cwd: root,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: false,
+      }).unref();
+    }
+  } catch (error) {
+    return undefined;
+  }
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline) {
+    const hit = await probe(port);
+    if (hit) {
+      terminalServers.set(hit.url, { root, port, url: hit.url, terminal: true });
+      return hit;
+    }
+    await delay(300);
+  }
+  throw new Error(
+    `A Terminal window was opened in ${root}, but the workbench did not answer on ${url} within 45 s. ` +
+      `Check that window for the error (is the .venv installed?), or set OPENMUSIC_PYTHON.`,
+  );
+}
+
+/** Terminal first (visible and user-stopped); a hidden child only where no terminal can be opened. */
 async function startWorkbench(root, preferredPort) {
+  const visible = await startVisibleWorkbench(root, preferredPort);
+  if (visible) return visible;
+  return startHiddenWorkbench(root, preferredPort);
+}
+
+async function startHiddenWorkbench(root, preferredPort) {
   const python = pythonFor(root);
   const logDir = join(root, ".cache", "dsh-openmusic");
   mkdirSync(logDir, { recursive: true });
@@ -964,9 +1055,9 @@ function definitions() {
     {
       name: "openmusic_stop",
       description:
-        "Stop the OpenMusic workbench server that this plugin started. The plugin also stops it when the Harness " +
-        "exits, so no workbench is left behind. A workbench started by OpenMusic.command / OpenMusic.bat (or " +
-        "another process) is left alone.",
+        "Stop a workbench this plugin started in the background. A workbench the plugin opened in a Terminal / " +
+        "cmd window is stopped with Ctrl+C in that window; one started by OpenMusic.command / OpenMusic.bat is " +
+        "left alone.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -977,6 +1068,11 @@ function definitions() {
       async execute() {
         const running = await findWorkbench();
         if (!running) return { text: "OpenMusic is not running." };
+        if (terminalServers.has(running.url)) {
+          return {
+            text: `OpenMusic is running in a Terminal window at ${running.url}; press Ctrl+C there to stop it.`,
+          };
+        }
         const owned = ownedServers.get(running.url) ?? adoptSaved(running);
         if (!owned) {
           return {

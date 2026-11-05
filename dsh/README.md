@@ -24,7 +24,7 @@
    > 把「某首歌」分轨、扒谱并生成 Guitar Pro
    > 打开「某首歌」的练习播放器
 
-插件会自己找到项目目录并启动工作台（默认 `http://localhost:8780`，已经开着就直接用）。
+插件会自己找到项目目录并启动工作台（没有开着的话，会像 `OpenMusic.command` 一样弹出一个终端窗口，默认 `http://localhost:8780`；已经开着就直接用）。
 
 ## 六个工具
 
@@ -35,7 +35,7 @@
 | `openmusic_import` | 把一个本地音频文件加进 `songs/`（mp3 / wav / flac / m4a / aac / ogg，最大 400 MB） |
 | `openmusic_export_gp` | 按所选的谱内音频轨（分轨混音 / 原曲 / 不放）生成一份 `.gp`，存到 `outputs/_dsh_gp/` |
 | `openmusic_open` | 打开工作台或某首歌的练习播放器（默认在浏览器里打开，也可以只返回链接） |
-| `openmusic_stop` | 立刻停止**这个插件启动的**工作台；用启动器开的工作台不动。DSH 正常退出时也会自动停 |
+| `openmusic_stop` | 停止插件在**后台**启动的工作台；在终端窗口里启动的，按那个窗口的 Ctrl+C 停 |
 
 处理长歌时，`openmusic_process` 默认最多等 120 秒（`wait_seconds` 可改，最多 590 秒）；超时后任务继续在后台跑，再调 `openmusic_status` 看进度就行。
 
@@ -49,8 +49,9 @@
 
 ## 工作方式
 
-1. 在 `8780`–`8799` 里找一个已经在跑的工作台；没有的话，用项目 `.venv` 的 Python 启动
-   `experiments/app.py --no-browser --port <端口>`，日志在 `.cache/dsh-openmusic/workbench.log`。
+1. 在 `8780`–`8799` 里找一个已经在跑的工作台；没有的话，像 `OpenMusic.command` 一样弹出一个终端窗口，在里面用项目
+   `.venv` 的 Python 启动 `experiments/app.py --no-browser --port <端口>`。窗口归你：按 Ctrl+C 就停，DSH 退出时不会去动它。
+   只有实在打不开终端时（例如 Linux 无图形界面），才退回到后台子进程，日志在 `.cache/dsh-openmusic/workbench.log`。
 2. DSH 页面请求 `/openmusic/...` 时，插件的 Host 半代理到工作台：`/openmusic/app` → `/app`，
    `/openmusic/api/*` → `/api/*`，`/openmusic/outputs/*` → `/outputs/*`。代理只做三件事：改写页面里的绝对路径、去掉
    `X-Frame-Options` / `frame-ancestors`、把 `/api/gp` 请求里的 `openmusic/` 前缀去掉。`app.py` 完全不知道自己在被嵌入。
@@ -74,8 +75,9 @@
 - 插件不会把 Python 打进 Harness，也不会替用户跑安装；环境没装好时工具会报错并提示先装环境。
 - 页面里的播放器是一个同源 iframe（音频处理仍跑在它自己的页面里），所以它的配色跟随 OpenMusic 自己的浅色/深色，而不是 Harness 主题；这是为了不重写播放器。
 - 第一次打开页面时如果找不到项目目录（没有正在跑的工作台、会话也不在 OpenMusic 文件夹里），页面会让你填一次路径，记在这个浏览器里。
-- 插件启动的工作台进程记在 `.cache/dsh-openmusic/workbench.json`：DSH 正常退出时会给它发 `SIGTERM`（Windows 上连它的子进程一起结束），热重载/重启后也能凭这个文件认领；平时也可以用 `openmusic_stop` 立刻停。用 `OpenMusic.command` 手动开的工作台不归插件管，不会被自动停。
-- 如果 DSH 被强制杀掉，退出钩子不会执行；下次启动面板或调用工具时会认领那个工作台，并在下一次正常退出时停掉它。也可以按 `workbench.json` 里的 PID 手动 `kill`。
+- 插件在终端窗口里启动的工作台是一个普通的前台进程：DSH 退出时**不会**替你关它，看完按那个窗口的 Ctrl+C 就停。这样不会有看不见的后台进程，也不会把正在跑的任务悄悄带走。
+- 没有终端可用的兜底情况下，工作台才记在 `.cache/dsh-openmusic/workbench.json`，DSH 正常退出时收到 `SIGTERM`（Windows 上连子进程一起结束），也可以用 `openmusic_stop` 停；热重载/重启后能凭这个文件认领。
+- 如果 DSH 被强制杀掉，退出钩子不会执行；下次打开面板或调用工具时会认领那个后台工作台，并在下一次正常退出时停掉它。也可以按 `workbench.json` 里的 PID 手动 `kill`。
 - 许可：AGPL-3.0，和 OpenMusic 仓库一致。
 
 ---
@@ -96,7 +98,7 @@ A DeepSeek Harness bundle for OpenMusic. It puts the **installed** app into a DS
 
 ### Tools
 
-`openmusic_status` (library, steps, jobs, one song's details), `openmusic_process` (run the pipeline or selected steps; one heavy job at a time), `openmusic_import` (copy an audio file into `songs/`), `openmusic_export_gp` (`.gp` with a chosen audio track, saved under `outputs/_dsh_gp/`), `openmusic_open` (workbench or practice player in the browser) and `openmusic_stop` (stop only a workbench this plugin started).
+`openmusic_status` (library, steps, jobs, one song's details), `openmusic_process` (run the pipeline or selected steps; one heavy job at a time), `openmusic_import` (copy an audio file into `songs/`), `openmusic_export_gp` (`.gp` with a chosen audio track, saved under `outputs/_dsh_gp/`), `openmusic_open` (workbench or practice player in the browser) and `openmusic_stop` (stop a background workbench this plugin started; a workbench in a Terminal window is stopped with Ctrl+C there).
 
 ### What it looks like
 
@@ -104,8 +106,8 @@ A sidebar **OpenMusic** icon opens a full page in the Harness; inside it is the 
 
 ### How it works
 
-It probes ports 8780–8799 for a running workbench, otherwise starts `experiments/app.py --no-browser` with the project's `.venv` Python (log: `.cache/dsh-openmusic/workbench.log`). Requests for `/openmusic/app`, `/openmusic/api/*` and `/openmusic/outputs/*` are proxied to `/app`, `/api/*` and `/outputs/*`; the proxy rewrites root-absolute URLs, strips `X-Frame-Options` / `frame-ancestors`, and removes the `openmusic/` prefix from the player's `/api/gp` body. `app.py` is untouched and does not know it is embedded.
+It probes ports 8780–8799 for a running workbench. If there is none, it opens a Terminal (macOS) or cmd (Windows) window that runs `experiments/app.py --no-browser` with the project's `.venv` Python — a normal foreground process the user stops with Ctrl+C; the Harness does not close it. Only when no terminal can be opened does it fall back to a hidden child (log: `.cache/dsh-openmusic/workbench.log`). Requests for `/openmusic/app`, `/openmusic/api/*` and `/openmusic/outputs/*` are proxied to `/app`, `/api/*` and `/outputs/*`; the proxy rewrites root-absolute URLs, strips `X-Frame-Options` / `frame-ancestors`, and removes the `openmusic/` prefix from the player's `/api/gp` body. `app.py` is untouched and does not know it is embedded.
 
 ### Limits
 
-The page needs the OpenMusic Python environment and a running workbench (the plugin starts one). A workbench the plugin started is recorded in `.cache/dsh-openmusic/workbench.json` and gets `SIGTERM` when the Harness exits (on Windows its child processes are ended too); `openmusic_stop` stops it immediately, and a workbench started by `OpenMusic.command` is never touched. If the Harness is force-killed the exit hook cannot run; opening the page again adopts that workbench, and the next normal exit stops it — or kill the PID in `workbench.json` by hand. The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
+The page needs the OpenMusic Python environment and a running workbench. When none is running and the plugin can open a terminal, that window is a normal foreground process: it is not closed when the Harness exits — press Ctrl+C in it. In the no-terminal fallback the workbench is recorded in `.cache/dsh-openmusic/workbench.json`, gets `SIGTERM` when the Harness exits (on Windows its child processes are ended too), and `openmusic_stop` stops it. If the Harness is force-killed the exit hook cannot run; opening the page again adopts that background workbench, and the next normal exit stops it — or kill the PID in `workbench.json` by hand. The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
