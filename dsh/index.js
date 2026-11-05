@@ -9,8 +9,8 @@
  *
  * Everything here is standard-library Node: no npm dependencies, so the bundle installs as a plain directory.
  */
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn, execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -21,8 +21,108 @@ const AUDIO_EXT = /\.(mp3|m4a|wav|flac|aac|ogg)$/i;
 const MAX_UPLOAD = 400 * 1024 * 1024;
 const DEFAULT_PORTS = Array.from({ length: 20 }, (_, i) => 8780 + i);
 
-/** Servers this plugin started, keyed by URL, so `openmusic_stop` only stops ours. */
-const ownedServers = new Map();
+/**
+ * Workbenches this plugin started (or adopted from its own PID file).  The map and the exit hook live on the
+ * `process` object so a hot reload keeps them, and the hook kills exactly those processes when the Harness
+ * exits.  A workbench started by OpenMusic.command / the user is never touched.
+ */
+const OWNED_KEY = Symbol.for("openmusic-dsh.owned-servers");
+const EXIT_KEY = Symbol.for("openmusic-dsh.exit-hook");
+const ownedServers = process[OWNED_KEY] ?? (process[OWNED_KEY] = new Map());
+
+function workbenchStateFile(root) {
+  return join(root, ".cache", "dsh-openmusic", "workbench.json");
+}
+
+function readServerState(root) {
+  try {
+    return JSON.parse(readFileSync(workbenchStateFile(root), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function writeServerState(server) {
+  try {
+    const file = workbenchStateFile(server.root);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      JSON.stringify({ version: 1, pid: server.pid, port: server.port, root: server.root, url: server.url }),
+    );
+  } catch {
+    // Best effort: without the file the server still works, it just cannot be adopted after a reload.
+  }
+}
+
+function clearServerState(server) {
+  try {
+    const file = workbenchStateFile(server.root);
+    const saved = readServerState(server.root);
+    if (!saved || saved.pid === server.pid) unlinkSync(file);
+  } catch {
+    // Already gone.
+  }
+}
+
+function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Stop one process and, on Windows, its job children; SIGTERM first, SIGKILL when forced. */
+function killProcessTree(pid, force) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])], { stdio: "ignore" });
+      return;
+    } catch {
+      // Fall through to process.kill.
+    }
+  }
+  try {
+    process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+  } catch {
+    // Already gone.
+  }
+}
+
+function ensureExitHook() {
+  if (process[EXIT_KEY]) return;
+  process[EXIT_KEY] = true;
+  process.once("exit", () => {
+    for (const server of ownedServers.values()) {
+      killProcessTree(server.pid, false);
+    }
+  });
+}
+
+/** Claim a running workbench only when its own PID file names the same port and that PID is alive. */
+function adoptSaved(running) {
+  const root = rootFromState(running.state);
+  if (!root) return undefined;
+  const saved = readServerState(root);
+  if (!saved || saved.port !== running.port || !processAlive(saved.pid)) return undefined;
+  const server = { pid: saved.pid, root, port: running.port, url: running.url, adopted: true };
+  ownedServers.set(running.url, server);
+  ensureExitHook();
+  return server;
+}
+
+/** Stop one workbench this plugin owns: SIGTERM first, SIGKILL if it is still there after five seconds. */
+async function stopServer(server) {
+  killProcessTree(server.pid, false);
+  for (let i = 0; i < 50 && processAlive(server.pid); i++) await delay(100);
+  if (processAlive(server.pid)) killProcessTree(server.pid, true);
+  ownedServers.delete(server.url);
+  clearServerState(server);
+}
 
 /** The project folder the DSH page last opened (from its URL or a tool call), reused by later panel requests. */
 let knownRoot;
@@ -183,7 +283,14 @@ async function startWorkbench(root, preferredPort) {
         if (proc.exitCode !== null) break;
         const hit = await probe(port);
         if (hit) {
-          ownedServers.set(url, { proc, root, port });
+          const server = { proc, pid: proc.pid, root, port, url };
+          ownedServers.set(url, server);
+          writeServerState(server);
+          ensureExitHook();
+          proc.once("exit", () => {
+            if (ownedServers.get(url) === server) ownedServers.delete(url);
+            clearServerState(server);
+          });
           return hit;
         }
         await delay(300);
@@ -208,6 +315,7 @@ async function ensureWorkbench(root, preferredPort) {
   const existing = await findWorkbench();
   if (existing) {
     rememberRoot(rootFromState(existing.state));
+    if (!ownedServers.has(existing.url)) adoptSaved(existing);
     return existing;
   }
   if (!root) {
@@ -856,8 +964,9 @@ function definitions() {
     {
       name: "openmusic_stop",
       description:
-        "Stop the OpenMusic workbench server that this plugin started. A workbench started by OpenMusic.command / " +
-        "OpenMusic.bat (or another process) is left alone.",
+        "Stop the OpenMusic workbench server that this plugin started. The plugin also stops it when the Harness " +
+        "exits, so no workbench is left behind. A workbench started by OpenMusic.command / OpenMusic.bat (or " +
+        "another process) is left alone.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -868,12 +977,13 @@ function definitions() {
       async execute() {
         const running = await findWorkbench();
         if (!running) return { text: "OpenMusic is not running." };
-        const owned = ownedServers.get(running.url);
+        const owned = ownedServers.get(running.url) ?? adoptSaved(running);
         if (!owned) {
-          return { text: `OpenMusic is running at ${running.url}, but this plugin did not start it; close its terminal or use the launcher.` };
+          return {
+            text: `OpenMusic is running at ${running.url}, but this plugin did not start it; close its terminal or use the launcher.`,
+          };
         }
-        owned.proc.kill("SIGTERM");
-        ownedServers.delete(running.url);
+        await stopServer(owned);
         return { text: `Stopped the OpenMusic workbench at ${running.url}.` };
       },
     },

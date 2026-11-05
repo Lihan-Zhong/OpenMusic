@@ -35,7 +35,7 @@
 | `openmusic_import` | 把一个本地音频文件加进 `songs/`（mp3 / wav / flac / m4a / aac / ogg，最大 400 MB） |
 | `openmusic_export_gp` | 按所选的谱内音频轨（分轨混音 / 原曲 / 不放）生成一份 `.gp`，存到 `outputs/_dsh_gp/` |
 | `openmusic_open` | 打开工作台或某首歌的练习播放器（默认在浏览器里打开，也可以只返回链接） |
-| `openmusic_stop` | 停止**这个插件启动的**工作台；用启动器开的工作台不动 |
+| `openmusic_stop` | 立刻停止**这个插件启动的**工作台；用启动器开的工作台不动。DSH 正常退出时也会自动停 |
 
 处理长歌时，`openmusic_process` 默认最多等 120 秒（`wait_seconds` 可改，最多 590 秒）；超时后任务继续在后台跑，再调 `openmusic_status` 看进度就行。
 
@@ -74,6 +74,8 @@
 - 插件不会把 Python 打进 Harness，也不会替用户跑安装；环境没装好时工具会报错并提示先装环境。
 - 页面里的播放器是一个同源 iframe（音频处理仍跑在它自己的页面里），所以它的配色跟随 OpenMusic 自己的浅色/深色，而不是 Harness 主题；这是为了不重写播放器。
 - 第一次打开页面时如果找不到项目目录（没有正在跑的工作台、会话也不在 OpenMusic 文件夹里），页面会让你填一次路径，记在这个浏览器里。
+- 插件启动的工作台进程记在 `.cache/dsh-openmusic/workbench.json`：DSH 正常退出时会给它发 `SIGTERM`（Windows 上连它的子进程一起结束），热重载/重启后也能凭这个文件认领；平时也可以用 `openmusic_stop` 立刻停。用 `OpenMusic.command` 手动开的工作台不归插件管，不会被自动停。
+- 如果 DSH 被强制杀掉，退出钩子不会执行；下次启动面板或调用工具时会认领那个工作台，并在下一次正常退出时停掉它。也可以按 `workbench.json` 里的 PID 手动 `kill`。
 - 许可：AGPL-3.0，和 OpenMusic 仓库一致。
 
 ---
@@ -106,4 +108,4 @@ It probes ports 8780–8799 for a running workbench, otherwise starts `experimen
 
 ### Limits
 
-The page needs the OpenMusic Python environment and a running workbench (the plugin starts one). The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
+The page needs the OpenMusic Python environment and a running workbench (the plugin starts one). A workbench the plugin started is recorded in `.cache/dsh-openmusic/workbench.json` and gets `SIGTERM` when the Harness exits (on Windows its child processes are ended too); `openmusic_stop` stops it immediately, and a workbench started by `OpenMusic.command` is never touched. If the Harness is force-killed the exit hook cannot run; opening the page again adopts that workbench, and the next normal exit stops it — or kill the PID in `workbench.json` by hand. The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
