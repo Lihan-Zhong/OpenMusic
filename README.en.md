@@ -83,7 +83,7 @@ step can also be redone on its own, or run in a terminal (see "[**Practice playe
 
 ## Using it from DeepSeek Harness (plugin)
 
-`dsh/` is a DeepSeek Harness bundle. Once installed, a sidebar **OpenMusic** entry opens the original workbench and practice player inside DSH (the plugin serves the web app same-origin; `app.py` is unchanged), and a session can also list the library, split, analyse, transcribe, export Guitar Pro or open a song's practice player from chat. It changes nothing in the pipeline: it starts (or reuses) the existing [workbench](#workbench) and calls the workbench's own local API, so the stems, scores and player are exactly the same as by hand, and the launchers keep working. Install steps, tools and limits: [dsh/README.md](dsh/README.md).
+`dsh/` is a DeepSeek Harness bundle. Once installed, a sidebar **OpenMusic** entry opens the original workbench and practice player inside DSH (the plugin serves the web app same-origin; `app.py` is unchanged), and a session can also list the library, split, analyse, transcribe, export Guitar Pro or open a song's practice player from chat. It changes nothing in the pipeline: it starts (or reuses) the existing [workbench](#workbench) and calls the workbench's own local API, so the stems, scores and player are exactly the same as by hand, and the launchers keep working. Install steps, tools and limits: [dsh/README.md](dsh/README.md); if you do not want to clone the whole repository, the plugin is also on the [Release](https://github.com/Lihan-Zhong/OpenMusic/releases/tag/dsh-v0.3.0) page.
 
 ## Starting by hand
 

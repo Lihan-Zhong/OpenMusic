@@ -37,7 +37,7 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 
 ## 在 DeepSeek Harness 里用（插件）
 
-仓库里的 `dsh/` 是一个 DeepSeek Harness 插件（bundle）。装进 Harness 后，左侧栏会多一个 **OpenMusic** 入口，点开就是原来的工作台和练习播放器（插件把网页原样挂在 DSH 的同源路径下，不改 `app.py`）；也可以在对话里让 agent 看曲库、分轨、分析、扒谱、导出 Guitar Pro，或者打开某首歌的练习播放器。它不改动任何流程：只是启动（或复用）你已经开着的[工作台](#工作台)，调用工作台自己的本地接口，所以出来的分轨、谱子和播放器跟手动操作完全一样，原来的启动方式也不受影响。安装方法、工具和限制见 [dsh/README.md](dsh/README.md)。
+仓库里的 `dsh/` 是一个 DeepSeek Harness 插件（bundle）。装进 Harness 后，左侧栏会多一个 **OpenMusic** 入口，点开就是原来的工作台和练习播放器（插件把网页原样挂在 DSH 的同源路径下，不改 `app.py`）；也可以在对话里让 agent 看曲库、分轨、分析、扒谱、导出 Guitar Pro，或者打开某首歌的练习播放器。它不改动任何流程：只是启动（或复用）你已经开着的[工作台](#工作台)，调用工作台自己的本地接口，所以出来的分轨、谱子和播放器跟手动操作完全一样，原来的启动方式也不受影响。安装方法、工具和限制见 [dsh/README.md](dsh/README.md)；不想克隆整个仓库的话，也可以从 [Release](https://github.com/Lihan-Zhong/OpenMusic/releases/tag/dsh-v0.3.0) 下载插件包。
 
 ## 手动开始
 
