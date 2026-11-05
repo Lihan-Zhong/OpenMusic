@@ -10,7 +10,9 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 
 目前，它对**人声**的分离+旋律扒谱，以及**贝斯**、**键盘**、**架子鼓**的扒谱已经很有帮助：基本可以做到输入一首 MP3，自动得到一份 Guitar Pro 乐谱。不过，目前**吉他**扒谱还仅限于把吉他的声音单独提取出来，并分析出每小节的和弦（以及整首歌的调）；具体的音最终还得靠耳朵去扒，但这样已经省力很多了！
 
-本项目在 Claude Code 的辅助下开发。它的核心是一套分析流程：把 GitHub 上优秀的开源工具和预训练模型（分轨、节拍、调性、转谱）串在一起，再补上自己训练的鼓谱模型、Guitar Pro 导出和练习播放器，**让一首歌从音频一路变成可以练、可以看的谱**。项目还处在很早期的阶段，接下来计划研究把多把吉他（比如主音吉他和节奏吉他）分开的方法。欢迎感兴趣的开发者一起参与，Star、Fork、提 Issue 或 PR 都非常欢迎 🤝
+本项目在 Claude Code + Codex + DeepSeek Harness 的辅助下开发。它的核心是一套分析流程：把 GitHub 上优秀的开源工具和预训练模型（分轨、节拍、调性、转谱）串在一起，再补上自己训练的鼓谱模型、Guitar Pro 导出和练习播放器，**让一首歌从音频一路变成可以练、可以看的谱**。项目还处在很早期的阶段，接下来计划研究把多把吉他（比如主音吉他和节奏吉他）分开的方法。欢迎感兴趣的开发者一起参与，Star、Fork、提 Issue 或 PR 都非常欢迎 🤝
+
+现在还多了一个 **DeepSeek Harness 插件**（`dsh/`）：装进 Harness 后，左侧栏会多一个 **OpenMusic** 页面，工作台和练习播放器直接出现在 DSH 里；也可以直接在对话里让 agent 看曲库、分轨、扒谱。安装只要让 Harness 里的 agent 把 `dsh/` 目录作为 bundle 装上（一句指令），详见 [dsh/README.md](dsh/README.md)。
 
 ## 整体流程
 
@@ -28,7 +30,7 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 2. 将[本项目的 GitHub 仓库链接](https://github.com/Lihan-Zhong/OpenMusic/tree/main)发送给 Agent，并输入：🔍
     > 请阅读这个 GitHub 项目:https://github.com/Lihan-Zhong/OpenMusic/tree/main
     > 按照项目文档帮我完成仓库克隆、环境配置、依赖安装和首次运行。
-3. 按照 Agent 的指引完成必要的授权或确认，克隆本仓库，然后下载+安装相应的环境依赖，装上外挂：[ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch)（可选，模型权重仅限非商业使用），获得满血能力🔥
+3. 按照 Agent 的指引完成必要的授权或确认，克隆本仓库，然后下载+安装相应的环境依赖，装上外挂：[ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch)（可选，模型权重仅限非商业使用），获得满血能力🔥 用 DeepSeek Harness 的话，还可以让 agent 顺手把 `dsh/` 插件装上：装好后左侧栏就有 OpenMusic 页面（见下面「在 DeepSeek Harness 里用」）。
 4. 直接双击项目文件夹里的 **`OpenMusic.command`**（Windows 上双击 **`OpenMusic.bat`**），立刻启动🚀
 
 💡 提示：如果你更喜欢手动安装，也可以自行克隆仓库，按照下面「[手动开始](#手动开始)」一节来。

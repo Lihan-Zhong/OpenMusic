@@ -18,12 +18,17 @@ Pro score. **Guitar** transcription, though, is so far limited to extracting the
 bar's chord (and the song's key); the actual notes still have to be worked out by ear, but this already saves a
 lot of effort!
 
-OpenMusic is developed with the help of Claude Code. At its core is an analysis pipeline: it chains excellent
-open-source tools and pre-trained models from GitHub (separation, beats, key, transcription), and adds a drum
-transcription model we trained ourselves, a Guitar Pro export and a practice player, **taking a song from audio
-all the way to a score you can practise with and read**. The project is at a very early stage; next we plan to
-look into separating several guitars (e.g. lead and rhythm guitar). Interested developers are very welcome to join
-in: stars, forks, issues and pull requests are all appreciated 🤝
+OpenMusic is developed with the help of Claude Code + Codex + DeepSeek Harness. At its core is an analysis
+pipeline: it chains excellent open-source tools and pre-trained models from GitHub (separation, beats, key,
+transcription), and adds a drum transcription model we trained ourselves, a Guitar Pro export and a practice
+player, **taking a song from audio all the way to a score you can practise with and read**. The project is at a
+very early stage; next we plan to look into separating several guitars (e.g. lead and rhythm guitar). Interested
+developers are very welcome to join in: stars, forks, issues and pull requests are all appreciated 🤝
+
+It now also has a **DeepSeek Harness plugin** (`dsh/`): once installed, the Harness sidebar gains an **OpenMusic**
+page with the workbench and practice player inside DSH, and a session can browse the library, split and transcribe
+from chat. Installing it is one instruction to the agent in the Harness — install the `dsh/` directory as a bundle;
+see [dsh/README.md](dsh/README.md).
 
 ## How it works
 
@@ -67,7 +72,9 @@ step can also be redone on its own, or run in a terminal (see "[**Practice playe
 3. Follow the agent's guidance for any permissions or confirmations it asks for: it clones this repository,
    downloads and installs the dependencies, and installs the plugin
    [ADTOF-pytorch](https://github.com/xavriley/ADTOF-pytorch) (optional; its model weights are for non-commercial
-   use only) for the full power 🔥
+   use only) for the full power 🔥 With DeepSeek Harness, you can also ask the agent to install the `dsh/`
+   bundle: the sidebar then gets the OpenMusic page (see
+   "[Using it from DeepSeek Harness](#using-it-from-deepseek-harness-plugin)" below).
 4. Double-click **`OpenMusic.command`** in the project folder (on Windows, **`OpenMusic.bat`**), and it starts
    right away 🚀
 
