@@ -41,19 +41,22 @@
 
 ## 它长什么样
 
-插件只注册工具，**不改变 Harness 的界面**：
+装好后，Harness 左侧会多一个 **OpenMusic** 图标；点开是 Harness 中央的一个完整页面，里面就是原来的工作台和练习播放器（通过插件的同源代理挂进来）。拖歌、分轨、分析、扒谱、Guitar Pro 弹窗、中英文切换，以及播放器的波形、分轨音量、A-B 循环、变速变调都和网页版一样。页面顶栏只有三个按钮：刷新、在新标签页打开、更换项目目录。
 
-- 在会话里，工具调用会显示成普通的工具卡片（参数、输出、日志）；
-- 曲库、工作台和练习播放器仍然在**浏览器标签页**里打开，就是现在的 OpenMusic 网页；
-- 不会在 Harness 里多出一个「OpenMusic 页面」。如果想在 Harness 侧边栏里放一个歌曲列表和按钮，需要另做一个 Client UI 插件（目前的版本没有做，避免动到播放器）。
+- 不看页面时，也可以在会话里用下面六个工具，让 agent 代你操作；
+- 工作台和播放器**不是重写的**：页面就是 `app.py` / `build_player.py` 生成的那一份，插件只负责把它挂到 DSH 的 `/openmusic/` 下并去掉防嵌套头；
+- `app.py`、`build_player.py` 和所有 Python 流程都没有改动。
 
 ## 工作方式
 
 1. 在 `8780`–`8799` 里找一个已经在跑的工作台；没有的话，用项目 `.venv` 的 Python 启动
    `experiments/app.py --no-browser --port <端口>`，日志在 `.cache/dsh-openmusic/workbench.log`。
-2. 通过工作台的本地接口操作：`GET /api/state`、`POST /api/run`、`POST /api/upload`、`POST /api/gp`。
+2. DSH 页面请求 `/openmusic/...` 时，插件的 Host 半代理到工作台：`/openmusic/app` → `/app`，
+   `/openmusic/api/*` → `/api/*`，`/openmusic/outputs/*` → `/outputs/*`。代理只做三件事：改写页面里的绝对路径、去掉
+   `X-Frame-Options` / `frame-ancestors`、把 `/api/gp` 请求里的 `openmusic/` 前缀去掉。`app.py` 完全不知道自己在被嵌入。
+3. 通过工作台的本地接口操作：`GET /api/state`、`POST /api/run`、`POST /api/upload`、`POST /api/gp`。
    这些接口本来只接受本机请求和 `X-OpenMusic` 头，插件在 Host 进程里调用，和网页用的是同一套。
-3. 不往歌文件夹里写额外文件；只有 `openmusic_export_gp` 会把生成的谱写到 `outputs/_dsh_gp/`（已在 `.gitignore` 里）。
+4. 不往歌文件夹里写额外文件；只有 `openmusic_export_gp` 会把生成的谱写到 `outputs/_dsh_gp/`（已在 `.gitignore` 里）。
 
 ## 配置
 
@@ -69,14 +72,15 @@
 
 - 桌面端本地使用：需要装好 OpenMusic 的 Python 环境，模型权重还是第一次运行时下载到 `.cache/`；手机和在线网页版仍然没有。
 - 插件不会把 Python 打进 Harness，也不会替用户跑安装；环境没装好时工具会报错并提示先装环境。
-- 练习播放器还是独立的浏览器页面（音频处理需要本地服务器，不能直接塞进 Harness 的插件页）。
+- 页面里的播放器是一个同源 iframe（音频处理仍跑在它自己的页面里），所以它的配色跟随 OpenMusic 自己的浅色/深色，而不是 Harness 主题；这是为了不重写播放器。
+- 第一次打开页面时如果找不到项目目录（没有正在跑的工作台、会话也不在 OpenMusic 文件夹里），页面会让你填一次路径，记在这个浏览器里。
 - 许可：AGPL-3.0，和 OpenMusic 仓库一致。
 
 ---
 
 ## English
 
-A DeepSeek Harness bundle for OpenMusic. It exposes the **installed** app to a session: song status, split, analysis, MIDI, Guitar Pro and the practice player. It does not reimplement the pipeline. It starts (or reuses) the existing workbench `experiments/app.py` and calls the local JSON API that the workbench page itself uses, so the stems, scores and player are exactly the ones you get by hand, and `OpenMusic.command` / `OpenMusic.bat` keep working unchanged.
+A DeepSeek Harness bundle for OpenMusic. It puts the **installed** app into a DSH page: a sidebar entry opens the original workbench and practice player, proxied same-origin under `/openmusic/`, and six tools let a session drive the same workbench. It does not reimplement the pipeline. It starts (or reuses) `experiments/app.py` and calls the local JSON API that the workbench page itself uses, so the stems, scores and player are exactly the ones you get by hand, and `OpenMusic.command` / `OpenMusic.bat` keep working unchanged.
 
 ### Install
 
@@ -94,10 +98,12 @@ A DeepSeek Harness bundle for OpenMusic. It exposes the **installed** app to a s
 
 ### What it looks like
 
-Tools only. Tool calls appear as ordinary tool cards in the conversation; the workbench and player stay in a browser tab as the same web pages. There is no extra OpenMusic page inside the Harness (a sidebar UI would be a separate Client plugin).
+A sidebar **OpenMusic** icon opens a full page in the Harness; inside it is the original workbench and practice player, served through the plugin's same-origin proxy. Dragging songs, splitting, analysis, transcription, the Guitar Pro dialog, the language switch and the player (waveform, per-stem volume, A-B loop, speed/pitch) behave exactly as on the web. The page bar only adds refresh, open-in-new-tab and change-folder. The same capabilities are also available as tool calls in the conversation.
 
 ### How it works
 
-It probes ports 8780–8799 for a running workbench, otherwise starts `experiments/app.py --no-browser` with the project's `.venv` Python (log: `.cache/dsh-openmusic/workbench.log`), then uses `GET /api/state`, `POST /api/run`, `POST /api/upload` and `POST /api/gp`. It writes nothing into song folders; only `openmusic_export_gp` writes a score to the git-ignored `outputs/_dsh_gp/`.
+It probes ports 8780–8799 for a running workbench, otherwise starts `experiments/app.py --no-browser` with the project's `.venv` Python (log: `.cache/dsh-openmusic/workbench.log`). Requests for `/openmusic/app`, `/openmusic/api/*` and `/openmusic/outputs/*` are proxied to `/app`, `/api/*` and `/outputs/*`; the proxy rewrites root-absolute URLs, strips `X-Frame-Options` / `frame-ancestors`, and removes the `openmusic/` prefix from the player's `/api/gp` body. `app.py` is untouched and does not know it is embedded.
 
-Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.
+### Limits
+
+The page needs the OpenMusic Python environment and a running workbench (the plugin starts one). The player is a same-origin iframe, so it keeps OpenMusic's own light/dark theme rather than the Harness theme. Environment: `OPENMUSIC_ROOT`, `OPENMUSIC_PYTHON`, `OPENMUSIC_PORT` (all optional). Licence: AGPL-3.0.

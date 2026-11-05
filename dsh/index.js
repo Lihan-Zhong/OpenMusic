@@ -24,6 +24,48 @@ const DEFAULT_PORTS = Array.from({ length: 20 }, (_, i) => 8780 + i);
 /** Servers this plugin started, keyed by URL, so `openmusic_stop` only stops ours. */
 const ownedServers = new Map();
 
+/** The project folder the DSH page last opened (from its URL or a tool call), reused by later panel requests. */
+let knownRoot;
+
+function rememberRoot(root) {
+  if (typeof root === "string" && root && isProjectDir(root)) {
+    knownRoot = root;
+    return root;
+  }
+  return undefined;
+}
+
+/** The most recently created live Session whose working directory is inside an OpenMusic checkout. */
+function lastSessionRoot(ctx) {
+  try {
+    const sessions = ctx.get("sessions");
+    if (!sessions) return undefined;
+    const live = sessions.list();
+    for (let index = live.length - 1; index >= 0; index--) {
+      const cwd = live[index]?.header?.cwd;
+      const found = typeof cwd === "string" && cwd ? walkUp(cwd) : undefined;
+      if (found) return found;
+    }
+  } catch {
+    // sessions is optional; the panel still works from OPENMUSIC_ROOT or a running workbench.
+  }
+  return undefined;
+}
+
+/** Root for a page request with no explicit folder: remembered, env, running workbench, then a live Session. */
+async function autoRoot(ctx) {
+  if (knownRoot && isProjectDir(knownRoot)) return knownRoot;
+  const env = process.env.OPENMUSIC_ROOT?.trim();
+  if (env) {
+    const root = resolve(env);
+    if (isProjectDir(root)) return rememberRoot(root);
+  }
+  const running = await findWorkbench();
+  const fromState = running && rootFromState(running.state);
+  if (fromState) return rememberRoot(fromState);
+  return rememberRoot(lastSessionRoot(ctx));
+}
+
 const textOutput = {
   schema: {
     type: "object",
@@ -164,13 +206,17 @@ async function startWorkbench(root, preferredPort) {
 
 async function ensureWorkbench(root, preferredPort) {
   const existing = await findWorkbench();
-  if (existing) return existing;
+  if (existing) {
+    rememberRoot(rootFromState(existing.state));
+    return existing;
+  }
   if (!root) {
     throw new Error(
       "OpenMusic is not running and no project folder was found. Open the session in the OpenMusic folder, " +
         "pass root (for example the folder containing experiments/app.py), or set OPENMUSIC_ROOT.",
     );
   }
+  rememberRoot(root);
   return startWorkbench(root, preferredPort);
 }
 
@@ -182,13 +228,13 @@ async function projectRoot(args, exec) {
     if (!isProjectDir(root)) {
       throw new Error(`${root} does not look like the OpenMusic project (experiments/app.py is missing).`);
     }
-    return root;
+    return rememberRoot(root);
   }
   const fromSession = walkUp(sessionCwd(exec) ?? process.cwd());
-  if (fromSession) return fromSession;
+  if (fromSession) return rememberRoot(fromSession);
   const running = await findWorkbench();
   const fromState = running && rootFromState(running.state);
-  if (fromState) return fromState;
+  if (fromState) return rememberRoot(fromState);
   throw new Error(
     "Cannot find the OpenMusic project. Pass root=<folder containing experiments/app.py>, or open the session there.",
   );
@@ -284,6 +330,180 @@ function jobText(job, withLog) {
   if (!withLog) return head;
   const log = (job.log ?? []).slice(-12).map((line) => `    ${line}`).join("\n");
   return log ? `${head}\n${log}` : head;
+}
+
+/* ------------------------------------------------------- DSH page / proxy */
+
+const PANEL_PREFIX = "/openmusic";
+
+function panelJson(value, status = 200) {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+function panelError(status, message) {
+  const safe = String(message).replace(/[&<>"]/g, (character) => `&#${character.charCodeAt(0)};`);
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><title>OpenMusic</title>` +
+      `<body style="font:14px/1.6 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;padding:2rem;max-width:46rem;margin:auto">` +
+      `<h1 style="font-size:1.1rem">OpenMusic</h1><p>${safe}</p></body>`,
+    { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+  );
+}
+
+/** The page shown inside the DSH tab before a project folder is known. */
+function panelSetupPage() {
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><title>OpenMusic</title>` +
+      `<body style="font:14px/1.6 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;padding:2rem;max-width:46rem;margin:auto">` +
+      `<h1 style="font-size:1.1rem">OpenMusic</h1>` +
+      `<p>没有找到 OpenMusic 项目目录。请在 DSH 的 OpenMusic 页面里填写项目文件夹（包含 <code>experiments/app.py</code>），` +
+      `或设置环境变量 <code>OPENMUSIC_ROOT</code>。</p>` +
+      `<p>No OpenMusic project folder was found. Set it in the OpenMusic page in DSH, or set <code>OPENMUSIC_ROOT</code>.</p>` +
+      `</body>`,
+    { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+  );
+}
+
+/** Point the workbench page's root-absolute URLs at our same-origin prefix so the page works inside DSH. */
+function rewriteHtml(text) {
+  return text
+    .replace(/(["'`])\/api\//g, "$1/openmusic/api/")
+    .replace(/(["'`])\/outputs\//g, "$1/openmusic/outputs/")
+    .replace(/href=(["'])\/\?lang=/g, "href=$1/openmusic/app?lang=");
+}
+
+/** /api/state returns absolute /outputs/... links; the player and MIDI links must stay inside the prefix. */
+function rewriteJson(text) {
+  return text.replace(/"\/outputs\//g, '"/openmusic/outputs/');
+}
+
+async function forwardToWorkbench(request, target, upstreamPath) {
+  const headers = new Headers();
+  for (const [name, value] of request.headers) {
+    if (["host", "connection", "content-length", "accept-encoding", "cookie", "origin", "referer"].includes(name)) {
+      continue;
+    }
+    headers.set(name, value);
+  }
+
+  let body;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    body = Buffer.from(await request.arrayBuffer());
+    if (upstreamPath === "/api/gp" && body.length > 0) {
+      // The player names its library as "outputs/<library>" (or "openmusic/outputs/<library>" through the
+      // proxy); /api/gp expects the path relative to the project.
+      try {
+        const data = JSON.parse(body.toString("utf8"));
+        if (typeof data.root === "string" && data.root.startsWith("openmusic/")) {
+          data.root = data.root.slice("openmusic/".length);
+          body = Buffer.from(JSON.stringify(data));
+        }
+      } catch {
+        // Not JSON: forward the body untouched.
+      }
+    }
+  }
+
+  const slow = upstreamPath === "/api/gp" || upstreamPath.startsWith("/api/upload");
+  let upstream;
+  try {
+    upstream = await fetch(target, {
+      method: request.method,
+      headers,
+      body,
+      redirect: "manual",
+      signal: AbortSignal.timeout(slow ? 300_000 : 90_000),
+    });
+  } catch (error) {
+    return panelError(502, `Cannot reach the OpenMusic workbench: ${error?.message ?? error}`);
+  }
+
+  const responseHeaders = new Headers();
+  for (const [name, value] of upstream.headers) {
+    if (
+      ["x-frame-options", "content-security-policy", "content-encoding", "content-length", "transfer-encoding",
+        "connection", "set-cookie"].includes(name)
+    ) {
+      continue;
+    }
+    responseHeaders.set(name, value);
+  }
+
+  const type = upstream.headers.get("content-type") ?? "";
+  if (upstream.ok && type.includes("text/html")) {
+    return new Response(rewriteHtml(await upstream.text()), { status: upstream.status, headers: responseHeaders });
+  }
+  if (upstream.ok && type.includes("application/json")) {
+    return new Response(rewriteJson(await upstream.text()), { status: upstream.status, headers: responseHeaders });
+  }
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+}
+
+async function panelInfo(ctx, url) {
+  const requested = url.searchParams.get("root");
+  let error;
+  if (requested) {
+    const candidate = resolve(process.cwd(), requested);
+    if (isProjectDir(candidate)) rememberRoot(candidate);
+    else error = `${candidate} 里没有 experiments/app.py`;
+  }
+  const running = await findWorkbench();
+  const root = error
+    ? rememberRoot(knownRoot) ?? null
+    : (requested ? rememberRoot(resolve(process.cwd(), requested)) : await autoRoot(ctx)) ?? null;
+  return panelJson({
+    root,
+    running: Boolean(running),
+    url: running?.url ?? null,
+    ...(error ? { error } : {}),
+  });
+}
+
+/** The /openmusic/* resource behind the DSH page: information, the workbench page, its API and its files. */
+function panelResource(ctx) {
+  return async (request) => {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    if (path === `${PANEL_PREFIX}/info`) return panelInfo(ctx, url);
+    if (path === PANEL_PREFIX || path === `${PANEL_PREFIX}/`) {
+      return new Response(null, { status: 302, headers: { location: `${PANEL_PREFIX}/app${url.search}` } });
+    }
+
+    try {
+      const requested = url.searchParams.get("root");
+      let root;
+      if (requested) {
+        const candidate = resolve(process.cwd(), requested);
+        if (!isProjectDir(candidate)) return panelError(400, `${candidate} 里没有 experiments/app.py`);
+        root = rememberRoot(candidate);
+      } else {
+        root = await autoRoot(ctx);
+      }
+      if (!root) return panelSetupPage();
+
+      const workbench = await ensureWorkbench(root, 8780);
+      const actualRoot = rootFromState(workbench.state);
+      if (actualRoot) rememberRoot(actualRoot);
+
+      let upstreamPath;
+      if (path === `${PANEL_PREFIX}/app` || path === `${PANEL_PREFIX}/app/`) upstreamPath = "/app";
+      else if (path.startsWith(`${PANEL_PREFIX}/api/`)) upstreamPath = path.slice(PANEL_PREFIX.length);
+      else if (path.startsWith(`${PANEL_PREFIX}/outputs/`)) upstreamPath = path.slice(PANEL_PREFIX.length);
+      else if (path === `${PANEL_PREFIX}/compare.html` || path === `${PANEL_PREFIX}/compare.en.html`) {
+        upstreamPath = path.slice(PANEL_PREFIX.length);
+      } else return panelError(404, "Not found");
+
+      const search = new URLSearchParams(url.search);
+      search.delete("root");
+      const query = search.toString();
+      return await forwardToWorkbench(request, workbench.url + upstreamPath + (query ? `?${query}` : ""), upstreamPath);
+    } catch (error) {
+      return panelError(502, error?.message ?? String(error));
+    }
+  };
 }
 
 /* ------------------------------------------------------------------- tools */
@@ -660,10 +880,13 @@ function definitions() {
   ];
 }
 
-export const inject = ["tools"];
+export const inject = ["tools", "webServer"];
 
 export function apply(ctx) {
   for (const definition of definitions()) {
     ctx.effect(() => ctx.tools.register(definition));
   }
+  ctx.effect(() =>
+    ctx.webServer.register({ kind: "prefix", path: PANEL_PREFIX, resource: panelResource(ctx) }),
+  );
 }
