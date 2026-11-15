@@ -1,0 +1,203 @@
+# OpenMusic → Minecraft 音符盒（试验）
+
+**中文** | [English](#english)
+
+把 Guitar Pro 谱或 MIDI 文件转成 [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio) 的 `.nbs` 歌曲，再用 Note Block Studio 导出成 Minecraft Java 版的结构：一条走道，两边是看得见的中继器、红石线和音符盒，按下按钮就开始演奏。
+
+推荐的流程：OpenMusic 扒谱 → 下载 Guitar Pro 谱 → 在 Guitar Pro 8 里把贝斯和鼓修准 → 把修好的谱转成 `.nbs`。网上下载的 `.gp` / `.gpx` / `.gp5` 谱，以及任何 MIDI 文件，也能直接转。
+
+## 1. 生成 .nbs
+
+- **工作台**：页面最下面的「Minecraft 音符盒」卡片。把文件拖进去，勾选音轨（默认贝斯和鼓），点「生成 .nbs」就会下载。文件不会存进曲库。
+- **命令行**（在项目文件夹里）：
+
+  ```bash
+  .venv/bin/python minecraft/export_nbs.py "songs/电动少女(Live).gp"
+  ```
+
+  - `--list`：只列出音轨，不写文件。
+  - `--tracks bass,drums,3`：选音轨，可以写类型、`--list` 里的编号或名字。
+  - `--instrument "Electric Bass=didgeridoo"`：给一条要转的音高轨换乐器；对不上音轨时会报错。
+  - `--ticks-per-beat 6`：换节奏网格。
+  - `--velocities`：保留谱子里的强弱。
+  - `--out`：指定输出位置。
+
+  也可以直接给 OpenMusic 的歌曲文件夹，比如 `outputs/roformer_sw_full/<歌名>`，用它的扒谱 MIDI。
+
+转换时会做这些事：
+
+- **速度**：红石最小一步是 0.1 秒，所以歌曲固定按每秒 10 刻播放，每拍分成整数个刻：每拍 4 刻 = 150 BPM（16 分音符准确），6 刻 = 100 BPM（8 分音符和三连音准确），8 刻 = 75 BPM，以此类推。程序会挑不打乱节奏、又最接近原速的那一档，并报告速度变了多少（例如《电动少女》122 BPM → 150 BPM，快 23%）。整首歌只有一个速度。
+- **音高**：每种音符盒乐器只有两个八度，超出的音按八度移进来，所以 Note Block Studio 导出时不会丢音。
+- **音色**：
+  - 贝斯用低音提琴（音符盒下面放木头）。
+  - 鼓按 Note Block Studio 3.12 的鼓映射，每件鼓的音高不同：
+    - 底鼓和嗵鼓用 Bass Drum（石头）；
+    - 闭镲和踩镲用 Click（玻璃）；
+    - 开镲、军鼓和其他镲片都用 Snare Drum（沙子），所以开镲听起来像高一点的军鼓；
+    - 叮叮镲的镲帽用 Bell（金块），牛铃用 Cow Bell（灵魂沙）。
+  - 其他轨先按 MIDI 音色选乐器（吉他 → Guitar 羊毛，人声 → Flute 黏土，钢琴 → Piano）。如果另一种乐器的两个八度能多装下 15% 以上的音，就换成那个，比如多数人声的音域更适合 Piano。
+- **强弱**：音符盒没有力度，导出结构时也不管力度，所以所有音都写成最大力度。这样在 Note Block Studio 里听到的，就是游戏里的效果。
+- **高度**：同一刻超过 4 个音时，Note Block Studio 会往上叠一层。军鼓下面的沙子没有东西托着会掉下来，所以用沙子的层都排在最后，它们总在最底层。
+- **名字**：Note Block Studio 每个字符只存一个字节，所以 `.nbs` 里的名字都是 ASCII：中文歌名写成 "OpenMusic song"，中文音轨名写成「类型 + `--list` 编号」，带重音的字母去掉重音。文件名保持原样。
+
+## 2. 安装 Note Block Studio
+
+- **Windows**：正式版 [3.11.0](https://github.com/OpenNBS/NoteBlockStudio/releases/latest)。
+- **Mac**：正式版只有 Windows 版。用 [3.12.0-rc.1 预览版](https://github.com/OpenNBS/NoteBlockStudio/releases/tag/v3.12.0-rc.1) 里的 `4.Minecraft.Note.Block.Studio.dmg`（需要 macOS 12 以上），或者通过它 GitHub 首页上的 TestFlight 链接安装。
+
+## 3. 在 Note Block Studio 里试听、导出结构
+
+1. 打开 `.nbs`，播放试听，可以直接改音。
+2. 导出：
+   - 3.12：「文件 → 导出 → 结构」（英文界面 File → Export → Schematic），格式选「.nbt (结构方块)」。
+   - 3.11：Export as schematic，版本选「1.13+」。
+3. 速度保持「10 红石刻 / 秒」（10 ticks / second），布局选「普通过道」（Simple walkway）。「包括矿车轨道」（Include minecart track）可选。
+4. 文件名只用小写字母、数字、`_`、`-`、`.`（Minecraft 的要求），比如 `dian_dong_shao_nv.nbt`。
+
+## 4. 放进 Minecraft（Java 版）
+
+> 这一段还没在游戏里实测过。
+
+1. 用官方启动器装 Java 版，它自带 Java，不用另外装。
+2. 新建世界：
+   - 游戏模式「创造」，难度「和平」；「允许命令」保持打开（选了创造就会自动打开）。
+   - 世界类型选「超平坦」→「自定义」→ 预设「红石俱备」。
+3. 把 `.nbt` 放进存档的 `generated/minecraft/structure/` 文件夹，没有就自己建。
+   - 注意：26.1 以后的版本是单数 `structure`，1.21.x 是复数 `structures`。
+   - Mac 的存档在 `~/Library/Application Support/minecraft/saves/<世界名>/`，游戏里「编辑世界 → 打开世界文件夹」也能找到。
+4. 进入世界，站在想放的位置，输入 `/place template minecraft:dian_dong_shao_nv ~ ~ ~`（换成你的文件名）。
+   - 如果是在世界开着的时候放进或换过这个 `.nbt`（包括重新导出的同名文件），先输入 `/reload`。
+   - 原因：游戏会记住查过的每个结构名，找到的、没找到的都记，直到 `/reload` 或重新进入世界。
+5. 走到结构起点的按钮那里按下去，沿着走道慢慢跟着走：音符盒在 48 格以内才听得见，离得太远的区块也不会运行红石。
+
+可选：`/gamerule advance_time false`（时间停住）、`/gamerule advance_weather false`、`/gamerule spawn_mobs false`。
+
+## 限制
+
+- 整首歌只有一个速度，而且只能是 150、100、75 BPM 这样的几档（每拍整数个红石刻）。
+- 网格是每拍 4 刻时，三连音和 32 分音符会被移到最近的 16 分音符上。
+- 音符盒没有力度：强弱音一样响。
+- 连音滑奏的目标音不会响（alphaTab 把它当作弯音）；死音拍弦（dead slap）没有音高，也不会响。
+- 反复记号每处最多演奏 8 遍。
+- 吉他扒谱太密，默认不转；修好的吉他谱可以用 `--tracks` 加进来。
+- 基岩版还没做（计划：用 Python 把结构转成 `.mcstructure`）。
+
+## 测试
+
+```bash
+.venv/bin/python minecraft/tests/test_export_nbs.py
+```
+
+加上 `--gp <文件>` 或 `--songs outputs/<曲库>`，还会转换真实的谱子和整个曲库来检查。
+
+## 许可
+
+- 代码是 AGPL-3.0，和 OpenMusic 一样。
+- `.nbs` 用 [pynbs](https://github.com/OpenNBS/pynbs)（MIT）写。
+- 乐器和鼓的映射取自 Open Note Block Studio（MIT，© 2024–2026 OpenNBS），它的 3.12 映射来自 u3002 的 [General MIDI ⇄ Minecraft Note Block Mapping](https://gist.github.com/u3002/cf4daa83bc82b5917fc86fb23815578a)（MIT，© u3002）。许可全文见 `export_nbs.py` 里映射表上方的注释。
+- Guitar Pro 文件由项目里内置的 alphaTab（MPL-2.0）读取。
+- Minecraft 是 Mojang 的商标。本工具与 Mojang、Microsoft 无关。
+
+---
+
+<a id="english"></a>
+
+# OpenMusic → Minecraft note blocks (experimental)
+
+[中文](#openmusic--minecraft-音符盒试验) | **English**
+
+Turn a Guitar Pro score or a MIDI file into an [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio) `.nbs` song, then export it from Note Block Studio as a Minecraft Java structure: a walkway with visible repeaters, redstone and note blocks on both sides that plays when you press the button.
+
+Suggested route: transcribe in OpenMusic → download the Guitar Pro file → fix the bass and drums in Guitar Pro 8 → convert the fixed score to `.nbs`. Scores downloaded elsewhere (`.gp` / `.gpx` / `.gp5`) and any MIDI file work too.
+
+## 1. Make the .nbs
+
+- **Workbench**: the "Minecraft note blocks" card at the bottom of the page. Drop a file on it, tick the tracks (bass and drums by default) and click "Build .nbs" to download it. Nothing is stored in the library.
+- **Command line** (in the project folder):
+
+  ```bash
+  .venv/bin/python minecraft/export_nbs.py "songs/电动少女(Live).gp"
+  ```
+
+  - `--list`: list the tracks and write nothing.
+  - `--tracks bass,drums,3`: pick tracks by kind, `--list` number or name.
+  - `--instrument "Electric Bass=didgeridoo"`: change a converted pitched track's instrument; a track it cannot match is an error.
+  - `--ticks-per-beat 6`: change the rhythm grid.
+  - `--velocities`: keep the score's dynamics.
+  - `--out`: say where to write.
+
+  An OpenMusic song folder such as `outputs/roformer_sw_full/<song>` works too, using its transcription MIDI.
+
+What the conversion does:
+
+- **Tempo**: redstone moves in steps of 0.1 s, so the song always plays at 10 ticks per second and every beat gets a whole number of ticks: 4 ticks = 150 BPM (exact 16ths), 6 = 100 BPM (exact 8ths and triplets), 8 = 75 BPM, and so on. It picks the one nearest the original tempo that keeps the rhythm, and reports the change (电动少女: 122 BPM → 150 BPM, 23% faster). The whole song has one tempo.
+- **Pitch**: each note block instrument covers two octaves; notes outside are moved by octaves into range, so Note Block Studio's export drops none.
+- **Sound**:
+  - The bass plays on the Double Bass (wood under the note block).
+  - The drums follow Note Block Studio 3.12's drum map, each kit piece at its own pitch:
+    - kick and toms on the Bass Drum (stone);
+    - closed and pedal hi-hats on the Click (glass);
+    - the open hi-hat, snare and other cymbals on the Snare Drum (sand), so an open hat sounds like a higher snare;
+    - the ride bell on the Bell (gold block), the cowbell on the Cow Bell (soul sand).
+  - Other tracks start from the instrument of their MIDI program (guitar → Guitar, wool; voice → Flute, clay; piano → Piano). They switch to another instrument when its two octaves hold at least 15% more of their notes; most vocal melodies fit the Piano better, for example.
+- **Dynamics**: note blocks have no loudness and the structure export ignores velocity, so every note is written at full velocity. Note Block Studio then plays the song as it will sound in the game.
+- **Height**: with more than 4 notes at once, Note Block Studio stacks another level. The Snare Drum's sand falls when nothing holds it up, so the sand layers come last and always fill the lowest level.
+- **Names**: Note Block Studio keeps one byte per character, so names in the `.nbs` are ASCII: a Chinese title becomes "OpenMusic song", a Chinese track name its kind and `--list` number, accents are dropped. The file name stays as it is.
+
+## 2. Install Note Block Studio
+
+- **Windows**: the stable [3.11.0](https://github.com/OpenNBS/NoteBlockStudio/releases/latest).
+- **Mac**: the stable release is Windows-only. Use `4.Minecraft.Note.Block.Studio.dmg` from the [3.12.0-rc.1 prerelease](https://github.com/OpenNBS/NoteBlockStudio/releases/tag/v3.12.0-rc.1) (macOS 12 or later), or the TestFlight linked from its GitHub page.
+
+## 3. Listen and export the structure in Note Block Studio
+
+1. Open the `.nbs`, play it, fix notes if you like.
+2. Export:
+   - 3.12: File → Export → Schematic, format ".nbt (Structure Block)".
+   - 3.11: Export as schematic, version "1.13+".
+3. Keep "10 ticks / second" and the "Simple walkway" layout. "Include minecart track" is optional.
+4. Name the file with lowercase letters, digits, `_`, `-` and `.` only (Minecraft's rule), e.g. `dian_dong_shao_nv.nbt`.
+
+## 4. Place it in Minecraft (Java Edition)
+
+> Not tried in the game yet.
+
+1. Install Java Edition with the official launcher; it brings its own Java.
+2. Create a world:
+   - Creative and Peaceful; keep "Allow Commands" on (choosing Creative turns it on).
+   - World Type "Superflat" → "Customize" → preset "Redstone Ready".
+3. Put the `.nbt` in the world's `generated/minecraft/structure/` folder; create it if missing.
+   - Since 26.1 the folder is `structure`; 1.21.x used `structures`.
+   - On a Mac, saves are in `~/Library/Application Support/minecraft/saves/<world>/`; in the game, Edit World → "Open World Folder" gets there too.
+4. In the world, stand where it should go and run `/place template minecraft:dian_dong_shao_nv ~ ~ ~` (your file's name).
+   - If you added or replaced the `.nbt` while the world was open (a re-export under the same name included), run `/reload` first.
+   - Why: the game remembers every structure name it has looked up, found or not, until `/reload` or until you re-enter the world.
+5. Press the button at the start of the structure and walk along with the music: note blocks are heard within 48 blocks, and redstone in chunks far from you stops.
+
+Optional: `/gamerule advance_time false`, `/gamerule advance_weather false`, `/gamerule spawn_mobs false`.
+
+## Limits
+
+- One tempo per song, and only steps such as 150, 100 or 75 BPM (a whole number of redstone ticks per beat).
+- On 4 ticks per beat, triplets and 32nds move to the nearest 16th.
+- Note blocks have no loudness: soft and loud notes sound the same.
+- The target note of a legato slide does not sound (alphaTab plays it as a bend), and neither does a dead slap, which has no pitch.
+- Each repeat plays at most 8 times.
+- Guitar transcriptions are too dense, so they are left out by default; add a fixed guitar part with `--tracks`.
+- Bedrock Edition is not done yet (planned: a Python converter to `.mcstructure`).
+
+## Tests
+
+```bash
+.venv/bin/python minecraft/tests/test_export_nbs.py
+```
+
+Add `--gp <file>` or `--songs outputs/<library>` to also convert real scores or a whole library.
+
+## Licences
+
+- The code is AGPL-3.0, like the rest of OpenMusic.
+- The `.nbs` is written with [pynbs](https://github.com/OpenNBS/pynbs) (MIT).
+- The instrument and drum maps come from Open Note Block Studio (MIT, © 2024–2026 OpenNBS), whose 3.12 maps are u3002's [General MIDI ⇄ Minecraft Note Block Mapping](https://gist.github.com/u3002/cf4daa83bc82b5917fc86fb23815578a) (MIT, © u3002). The full licence text is in the comment above the maps in `export_nbs.py`.
+- Guitar Pro files are read by the vendored alphaTab (MPL-2.0).
+- Minecraft is a trademark of Mojang. This tool is not affiliated with Mojang or Microsoft.

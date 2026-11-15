@@ -10,6 +10,8 @@ keeps a 16 GB laptop responsive):
   3. MIDI per stem        transcribe.py <library> --song <song>
      Guitar Pro file      export_gp.py <library> --song <song>   (after every analyze or transcribe)
   4. practice player      build_player.py <library>
+A Guitar Pro or MIDI file dropped on the "Minecraft note blocks" card becomes a .nbs song for Minecraft note
+blocks (minecraft/export_nbs.py), built on the spot and downloaded like the on-demand Guitar Pro file.
 It also serves the project folder like `python -m http.server`, so the player opens from the same address.
 Only standard-library Python; listens on 127.0.0.1 only and accepts actions only from its own page.
 """
@@ -17,6 +19,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -38,6 +41,7 @@ AUDIO = {".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg"}
 STEM_NAMES = ("vocals", "drums", "bass", "guitar", "piano", "other")
 STEM_EXT = (".mp3", ".flac", ".wav")
 MAX_UPLOAD = 400 * 1024 * 1024
+MAX_SCORE = 64 * 1024 * 1024     # a Guitar Pro file can carry an audio track
 
 # Each separation model writes full-song stems to outputs/<model>_full/<song>/ (evaluate_multi.py --full).
 # "mp3" is the hand-collected library (export_mp3.py): no split step, the stems are already there.
@@ -290,6 +294,10 @@ def command(job):
 
 GP_AUDIO = ("stems", "original", "none")
 GP_LOCK = threading.Lock()   # one on-demand Guitar Pro file at a time: each one decodes and mixes several stems
+NBS_LOCK = threading.Lock()  # one note block conversion at a time (each runs alphaTab in its own V8)
+# the files minecraft/export_nbs.py reads: Guitar Pro 7/8 (a zip), 6 (BCFZ/BCFS), 3-5, and MIDI
+SCORE_MAGIC = ((0, b"PK\x03\x04"), (0, b"BCF"), (1, b"FICHIER GUITAR PRO"), (0, b"MThd"))
+SUMMARY_FIELDS = ("bpm", "minecraft_bpm", "note_blocks", "seconds")   # of export_nbs.py's result, for the page
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -364,6 +372,8 @@ class Handler(SimpleHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/api/upload":
             return self.upload(parse_qs(url.query))
+        if url.path == "/api/nbs":
+            return self.nbs(parse_qs(url.query))
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
@@ -462,6 +472,73 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def nbs(self, query):
+        """A Guitar Pro or MIDI file (the request body) in, a Minecraft note block song out (minecraft/
+        export_nbs.py): with list=1 the file's tracks as JSON; else the .nbs of the tracks=1,3 numbers (default:
+        bass and drums), ticks per beat tpb= (default: chosen), as a download whose X-NBS-Summary header holds
+        SUMMARY_FIELDS of the result as URL-encoded JSON. The upload and the .nbs live in a temp folder: nothing
+        is stored."""
+        try:
+            size = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            size = 0
+        if not 0 < size <= MAX_SCORE:
+            return self._json({"error": "file too large" if size else "empty"}, 413 if size else 400)
+        chunks, left = [], size
+        while left:
+            chunk = self.rfile.read(min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        if left:
+            return self._json({"error": "upload interrupted"}, 400)
+        data = b"".join(chunks)
+        if not any(data[at:at + len(magic)] == magic for at, magic in SCORE_MAGIC):
+            return self._json({"error": "not a score"}, 400)
+        listing = query.get("list") == ["1"]
+        tracks, tpb = (query.get("tracks") or [""])[0], (query.get("tpb") or [""])[0]
+        if not re.fullmatch(r"([0-9]{1,3}(,[0-9]{1,3})*)?", tracks) or not re.fullmatch(r"([0-9]{1,2})?", tpb):
+            return self._json({"error": "bad options"}, 400)
+        if not NBS_LOCK.acquire(timeout=60):
+            return self._json({"error": "busy"}, 503)
+        # the file keeps its own name (a MIDI file's title), made safe for any file system, inside the temp folder
+        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", Path(unquote(self.headers.get("X-Filename") or "")).name)
+        name = name.strip(" .")[:120] or "score"
+        try:
+            with tempfile.TemporaryDirectory(prefix="openmusic-") as tmp:
+                src, out = Path(tmp) / name, Path(tmp) / "song.nbs"
+                src.write_bytes(data)
+                cmd = [sys.executable, str(ROOT / "minecraft" / "export_nbs.py"), str(src), "--json"]
+                cmd += ["--list"] if listing else ([f"--out={out}"] + [f"--tracks={tracks}"] * bool(tracks)
+                                                   + [f"--ticks-per-beat={tpb}"] * bool(tpb))
+                env = dict(os.environ, PYTHONIOENCODING="utf-8")
+                done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                                      errors="replace", env=env, timeout=120)
+                if done.returncode != 0:
+                    last = [line for line in (done.stderr or done.stdout).splitlines() if line.strip()][-1:]
+                    detail = last[0].removeprefix("export_nbs.py: ") if last else ""
+                    return self._json({"error": "conversion failed", "detail": detail}, 422)
+                result = json.loads(done.stdout.rstrip("\n").rsplit("\n", 1)[-1])   # its last line (one JSON)
+                if listing:
+                    return self._json(result)
+                song = out.read_bytes()
+        except subprocess.TimeoutExpired:
+            return self._json({"error": "conversion took too long"}, 500)
+        except (OSError, ValueError, IndexError) as e:
+            return self._json({"error": "conversion failed", "detail": str(e)}, 500)
+        finally:
+            NBS_LOCK.release()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(song)))
+        self.send_header("Content-Disposition", "attachment; filename=song.nbs")
+        # only what the page shows: the whole summary grows with the tracks, and proxies cap headers at 16 KB
+        self.send_header("X-NBS-Summary", quote(json.dumps({k: result.get(k) for k in SUMMARY_FIELDS})))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(song)
+
     def upload(self, query):
         name = Path(unquote(self.headers.get("X-Filename") or "")).name.lstrip("_.-").strip()
         try:
@@ -476,7 +553,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"error": "file too large"}, 413)
         SONGS.mkdir(exist_ok=True)
         target = SONGS / name
-        twin = any(p.stem.lower() == target.stem.lower() and p.name != name for p in SONGS.iterdir())
+        # another audio file of the same song; a score or .nbs kept next to it is not a twin
+        twin = any(p.suffix.lower() in AUDIO and p.stem.lower() == target.stem.lower() and p.name != name
+                   for p in SONGS.iterdir())
         if twin or (target.exists() and query.get("overwrite") != ["1"]):
             while size > 0:  # drain the body so the connection stays usable
                 chunk = self.rfile.read(min(size, 1 << 20))
@@ -622,6 +701,7 @@ th{font-size:12px;color:var(--muted);font-weight:600}
 .chip.ok{color:var(--ok)}.chip.run{color:var(--accent)}.chip.queued{color:var(--warn)}.chip.bad{color:var(--bad)}.chip.todo{color:var(--muted)}
 #gpdlg{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:18px;max-width:min(520px,calc(100vw - 32px));box-shadow:0 10px 40px rgba(0,0,0,.25)}
 #gpdlg::backdrop{background:rgba(0,0,0,.35)}#gpdlg .opt{display:block;margin:10px 0 4px}#gp-stems{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0 4px 24px}
+#mctracks label{display:block;margin:6px 0}#mctracks{margin:10px 0 0}button.act[hidden]{display:none}
 button.act,a.act{display:inline-block;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit;font-size:13px;margin:2px 4px 2px 0;white-space:nowrap;text-decoration:none}
 .primary{background:var(--accent)!important;border-color:var(--accent)!important;color:var(--on-accent)!important}
 button:disabled{opacity:.45;cursor:default}
@@ -646,6 +726,9 @@ pre{background:var(--chip);border-radius:8px;padding:10px;max-height:260px;overf
 <section class=card><h2 data-t=lib></h2><div class=tabs id=tabs></div><p class="small muted" id=libnote></p><p class="small warn" id=libwarn hidden></p><p id=batch hidden><button class="act primary" id=batchbtn></button> <span class="small muted" id=batchnote></span></p>
  <table><thead><tr><th data-t=c_song></th><th data-t=c_split></th><th data-t=c_an></th><th data-t=c_midi></th><th data-t=c_player></th><th></th></tr></thead><tbody id=rows></tbody></table></section>
 <section class=card id=jobcard><h2 data-t=jobs></h2><div id=jobs class=small></div></section>
+<section class=card id=mccard><h2 data-t=mc_h></h2><p class="small muted" data-t=mc_hint></p>
+ <label class=drop id=mcdrop><input type=file id=mcfile accept=".gp,.gpx,.gp5,.gp4,.gp3,.mid,.midi" hidden><span data-t=mc_drop></span></label>
+ <div id=mctracks class=small></div><p class=small id=mcstatus></p><div><button class="act primary" id=mcgo data-t=mc_go hidden></button></div></section>
 <dialog id=gpdlg><h2 id=gp-h></h2><p class="small muted" id=gp-hint></p>
 <label class=opt><input type=radio name=gp-audio value=stems> <span id=gp-l-stems></span></label><div id=gp-stems></div>
 <label class=opt><input type=radio name=gp-audio value=original> <span id=gp-l-original></span></label>
@@ -675,6 +758,10 @@ step_split:'分轨',step_analyze:'分析',step_transcribe:'扒谱',step_gp:'生�
 j_done:'完成',j_failed:'失败',j_cancelled:'已停止',j_skipped:'跳过（前一步没成功）',showlog:'查看日志',
 up_busy:'正在添加：{n} …',up_ok:'已添加：{n}',up_exists:'{n} 已经在 songs/ 里了，要覆盖吗？',up_bad:'不支持这个文件类型：{n}（可以用 mp3、wav、flac、m4a、aac、ogg）',
 up_big:'文件太大（上限 400 MB）：{n}',up_name:'文件名不能用：{n}（不能以点、下划线、减号开头，也不能含有 \\ / : * ? " < > |）',up_twin:'songs/ 里已经有同名但格式不同的歌：{n}',up_cut:'上传中断了，请再试一次：{n}',up_err:'保存失败：{n}（文件可能正被别的程序占用）',
+mc_h:'Minecraft 音符盒（试验）',mc_hint:'把 Guitar Pro 谱（可以先在 Guitar Pro 8 里修好）或 MIDI 文件拖进来，勾选音轨，生成 Note Block Studio 的 .nbs 歌曲：用 Note Block Studio 打开试听，再导出成 Minecraft Java 版的结构（步骤见 minecraft/README.md）。默认只转贝斯和鼓。文件不会存进曲库。',
+mc_drop:'把 .gp / .gpx / .gp5 或 .mid 文件拖到这里，或点这里选择',mc_reading:'正在读取 {n} …',mc_pick:'勾选要转的音轨，然后生成。',mc_go:'生成 .nbs',mc_busy:'正在生成…',
+mc_done:'已下载：{name}。速度 {bpm} BPM（原曲 {orig} BPM），{blocks} 个音符盒，约 {time}。',mc_err:'转换失败：{msg}',mc_none:'至少勾一轨。',mc_notes:'{n} 个音',mc_muted:'已静音',mc_big:'文件太大（上限 64 MB）',mc_bad:'不是 Guitar Pro 或 MIDI 文件',
+k_bass:'贝斯',k_drums:'鼓',k_guitar:'吉他',k_piano:'钢琴',k_melody:'旋律',
 hw:'这台电脑：{p}，{g}，内存 {r} GB',offline:'连不上工作台了：运行它的终端窗口可能已经关闭。重新运行 python experiments/app.py 后刷新本页。',
 foot:'工作台只在本机运行（127.0.0.1）。它调用的就是 README 里的那几条命令，也可以直接在终端里跑。'},
 en:{title:'OpenMusic workbench',intro:'Take a song from an audio file all the way to the practice player. Each step can be run or redone on its own; “Process all” runs the missing steps in order. One job runs at a time, so the computer stays responsive.',
@@ -696,6 +783,10 @@ step_split:'split',step_analyze:'analyze',step_transcribe:'transcribe',step_gp:'
 j_done:'done',j_failed:'failed',j_cancelled:'stopped',j_skipped:'skipped (previous step failed)',showlog:'show log',
 up_busy:'Adding {n} …',up_ok:'Added: {n}',up_exists:'{n} is already in songs/. Overwrite it?',up_bad:'Unsupported file type: {n} (use mp3, wav, flac, m4a, aac or ogg)',
 up_big:'File too large (max 400 MB): {n}',up_name:'This file name cannot be used: {n} (it must not start with a dot, underscore or hyphen, or contain \\ / : * ? " < > |)',up_twin:'songs/ already has a song with this name in another format: {n}',up_cut:'Upload interrupted, please try again: {n}',up_err:'Could not save {n} (it may be open in another program)',
+mc_h:'Minecraft note blocks (experimental)',mc_hint:'Drop a Guitar Pro file (fix it in Guitar Pro 8 first if you like) or a MIDI file here, tick the tracks, and get a .nbs song for Note Block Studio: open it there to listen, then export it as a Minecraft Java structure (steps in minecraft/README.md). By default only the bass and drums are converted. Nothing is stored in the library.',
+mc_drop:'Drop a .gp / .gpx / .gp5 or .mid file here, or click to choose',mc_reading:'Reading {n} …',mc_pick:'Tick the tracks to convert, then build.',mc_go:'Build .nbs',mc_busy:'Building…',
+mc_done:'Downloaded: {name}. {bpm} BPM (the song: {orig} BPM), {blocks} note blocks, about {time}.',mc_err:'Could not convert it: {msg}',mc_none:'Tick at least one track.',mc_notes:'{n} notes',mc_muted:'muted',mc_big:'File too large (max 64 MB)',mc_bad:'Not a Guitar Pro or MIDI file',
+k_bass:'bass',k_drums:'drums',k_guitar:'guitar',k_piano:'piano',k_melody:'melody',
 hw:'This computer: {p}, {g}, {r} GB RAM',offline:'Lost contact with the workbench: the terminal running it may have been closed. Start python experiments/app.py again and reload this page.',
 foot:'The workbench runs only on this computer (127.0.0.1). It runs the same commands as the README; you can also run them in a terminal.'}};
 let lang='zh';try{lang=localStorage.getItem('om-lang')||'zh'}catch(e){}
@@ -804,6 +895,32 @@ file.onchange=()=>{upload([...file.files]);file.value=''};
 ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over')}));
 drop.addEventListener('drop',ev=>upload([...ev.dataTransfer.files]));
+// Minecraft note blocks: a Guitar Pro or MIDI file in, a .nbs out (POST /api/nbs, list=1 first for its tracks); nothing is stored
+let mcFile=null;
+const mcPost=(q,f)=>post('/api/nbs'+q,f,{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(f.name)});
+async function mcError(r){const e=await r.json().catch(()=>({}));return e.error==='file too large'?t('mc_big'):e.error==='not a score'?t('mc_bad'):(e.detail||e.error||r.status)}
+async function mcOpen(f){const st=document.getElementById('mcstatus'),box=document.getElementById('mctracks'),go=document.getElementById('mcgo');
+ mcFile=f;box.innerHTML='';go.hidden=true;st.textContent=t('mc_reading',{n:f.name});
+ try{const r=await mcPost('?list=1',f);if(!r.ok)throw new Error(await mcError(r));const info=await r.json();
+  if(mcFile!==f)return;   // another file was dropped meanwhile: its own reply counts
+  box.innerHTML=info.tracks.map(x=>`<label><input type=checkbox value=${+x.number} ${x.default?'checked':''}> ${esc(x.name||'#'+x.number)} <span class=muted>· ${esc(t('k_'+x.kind))} · ${esc(t('mc_notes',{n:x.notes}))}${x.muted?' · '+esc(t('mc_muted')):''}</span></label>`).join('');
+  st.textContent=t('mc_pick');go.hidden=false}
+ catch(e){if(mcFile===f)st.textContent=t('mc_err',{msg:e.message||String(e)})}}
+document.getElementById('mcgo').onclick=async()=>{const st=document.getElementById('mcstatus'),go=document.getElementById('mcgo');
+ const chosen=[...document.querySelectorAll('#mctracks input:checked')].map(c=>c.value),f=mcFile;if(!chosen.length){st.textContent=t('mc_none');return}
+ st.textContent=t('mc_busy');go.disabled=true;
+ try{const r=await mcPost('?tracks='+chosen.join(','),f);if(!r.ok)throw new Error(await mcError(r));
+  let sum={};try{sum=JSON.parse(decodeURIComponent(r.headers.get('X-NBS-Summary')||''))}catch(_){}
+  const name=f.name.replace(/\.[^.]*$/,'')+'.nbs',url=URL.createObjectURL(await r.blob()),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  const s=Math.round(sum.seconds||0);   // the download goes on; the status only if no other file was dropped since
+  if(mcFile===f)st.textContent=t('mc_done',{name,bpm:sum.minecraft_bpm??'?',orig:sum.bpm!=null?Math.round(sum.bpm):'?',blocks:sum.note_blocks??'?',time:Math.floor(s/60)+':'+String(s%60).padStart(2,'0')})}
+ catch(e){if(mcFile===f)st.textContent=t('mc_err',{msg:e.message||String(e)})}finally{go.disabled=false}};
+const mcdrop=document.getElementById('mcdrop'),mcfile=document.getElementById('mcfile');
+mcfile.onchange=()=>{if(mcfile.files[0])mcOpen(mcfile.files[0]);mcfile.value=''};
+['dragenter','dragover'].forEach(e=>mcdrop.addEventListener(e,ev=>{ev.preventDefault();mcdrop.classList.add('over')}));
+['dragleave','drop'].forEach(e=>mcdrop.addEventListener(e,ev=>{ev.preventDefault();mcdrop.classList.remove('over')}));
+mcdrop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0])mcOpen(ev.dataTransfer.files[0])});
 let timer=null;
 async function poll(){clearTimeout(timer);try{const r=await fetch('/api/state');S=await r.json();offline=false;render()}catch(e){offline=true;if(S)renderJobs()}
  const busy=S&&(S.jobs.current||S.jobs.queue.length);timer=setTimeout(poll,document.hidden?10000:busy?1000:5000)}

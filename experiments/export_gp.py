@@ -105,6 +105,7 @@ AUDIO_MODES = ("stems", "original", "none")
 AUDIO_STEMS = ("vocals", "guitar", "other")   # the default mix: what one works out by ear, heard as recorded
 MIX_PEAK_DB = -1.0                 # a stems mix louder than this (dBFS peak) is scaled down to it, never up
 SONGS = ROOT / "songs"             # the original audio files, songs/<song>.<ext> (as in the workbench)
+SOURCE_AUDIO = (".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg")   # the workbench's song files (app.AUDIO)
 GP8_AUDIO = (".mp3", ".m4a", ".wav", ".flac", ".aiff", ".aif", ".ogg")   # what Guitar Pro 8's audio track reads
 STEM_FILES = ("vocals", "drums", "bass", "guitar", "piano", "other")
 STEM_EXT = (".mp3", ".flac", ".wav")
@@ -802,10 +803,11 @@ def stem_paths(song_dir, names=STEM_FILES):
 
 
 def original_path(song_dir):
-    """songs/<song>.<ext>, the file the stems were split from, if it is there."""
+    """songs/<song>.<ext>, the audio file the stems were split from, if it is there (not a score or a .nbs of the
+    same name that the user keeps next to it)."""
     # not SONGS.glob(name + ".*"): a glob reads "[Live]" in a song name as a character class
-    return next((p for p in sorted(SONGS.iterdir()) if p.is_file() and p.suffix and p.stem == song_dir.name), None) \
-        if SONGS.is_dir() else None
+    return next((p for p in sorted(SONGS.iterdir()) if p.is_file() and p.suffix.lower() in SOURCE_AUDIO
+                 and p.stem == song_dir.name), None) if SONGS.is_dir() else None
 
 
 def stems_mix(paths):

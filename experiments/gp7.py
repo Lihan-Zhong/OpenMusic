@@ -20,6 +20,7 @@ hold that key (fix_drums); and the score's layout fields are written as Guitar P
 
     gp_bytes = to_gp(gp5_bytes, audio=mp3_bytes, sync=[(0, 0.0), (1, 1000.0), ...])   # (bar index, ms)
     dump(gp_bytes)      # what alphaTab reads back: title, bars, audio, and every beat and note of every track
+    midi, info = to_midi(gp_bytes)   # alphaTab's own player MIDI of a Guitar Pro file (minecraft/export_nbs.py)
 """
 import hashlib
 import io
@@ -135,6 +136,37 @@ globalThis.openmusic = {
                 notation: staff.showStandardNotation, tuning: Array.from(staff.stringTuning.tunings),
                 chords_shown: Array.from(staff.chords?.values() ?? []).filter(c => c.showDiagram).length, beats};
       }),
+    });
+  },
+  toMidi(hex) {
+    // alphaTab's own player MIDI: bars in playing order (repeats, endings), every voice, tied notes once;
+    // one MIDI track per score track (tempo and time signatures on track 0), 960 ticks per quarter
+    const score = openmusic.load(hex);
+    // a repeat count is just a number in the file, and alphaTab plays every repetition: keep it to 8 plays
+    for (const bar of score.masterBars) if (bar.repeatCount > 8) bar.repeatCount = 8;
+    // a dead-slapped beat has no pitch; alphaTab plays it as a 64th on every open string, so it stays silent
+    for (const track of score.tracks)
+      for (const staff of track.staves)
+        for (const bar of staff.bars)
+          for (const voice of bar.voices)
+            for (const beat of voice.beats)
+              if (beat.deadSlapped) {
+                beat.deadSlapped = false;
+                while (beat.notes.length) beat.removeNote(beat.notes[0]);
+              }
+    const first = score.masterBars[0];
+    const midi = new alphaTab.midi.MidiFile();
+    midi.format = alphaTab.midi.MidiFileFormat.MultiTrack;
+    const handler = new alphaTab.midi.AlphaSynthMidiFileHandler(midi, true);
+    new alphaTab.midi.MidiFileGenerator(score, new alphaTab.Settings(), handler).generate();
+    return JSON.stringify({
+      midi: openmusic.hex(midi.toBinary()), title: score.title, artist: score.artist,
+      // an anacrusis (pickup) bar gets no time signature of its own in the MIDI: its length in quarters
+      pickup: first && first.isAnacrusis ? first.calculateDuration() / 960 : 0,
+      tracks: score.tracks.map(track => ({
+        name: track.name, percussion: track.staves.some(s => s.isPercussion), mute: track.playbackInfo.isMute,
+        program: track.playbackInfo.program,
+        channels: [track.playbackInfo.primaryChannel, track.playbackInfo.secondaryChannel]})),
     });
   },
 };
@@ -288,6 +320,38 @@ def dump(data):
     song = json.loads(engine().call("openmusic.dump", data.hex()))
     song["audio_bytes"], song["audio_file"] = len(audio), name
     return song
+
+
+MAX_UNPACKED = 64 << 20   # a score's own files (its audio track left out) unpack to a few MB
+MAX_V8 = 1 << 30          # alphaTab's memory for one score (a whole song takes about 0.3 GB)
+
+
+def to_midi(data):
+    """(MIDI bytes, info) of a Guitar Pro file (.gp; also .gpx and .gp3-.gp5, which alphaTab reads as well) as
+    alphaTab plays it: a type-1 MIDI file with one track per score track (the score's track i is MIDI track i;
+    tempo and time signatures on track 0), bars in playing order (repeats and endings, each repeat played at
+    most 8 times), every voice, a tied note once, drums as General MIDI keys on channel 10, dead-slapped beats
+    silent. info = {title, artist, pickup (the length in quarters of an anacrusis first bar, or 0), tracks:
+    [{name, percussion, mute, program, channels: [primary, secondary]}]}. For minecraft/export_nbs.py, which gets
+    files from anywhere: a .gp (a zip) whose files would unpack to more than MAX_UNPACKED is refused before
+    anything is unpacked, each file is read up to its declared size only, its audio track is not read at all, and
+    alphaTab gets the zip rebuilt from those bytes (alphaTab itself unpacks whatever a file holds, whatever size
+    it declares); a .gpx declaring more than MAX_UNPACKED is refused too; and V8 may use at most MAX_V8 for it."""
+    if data[:4] == b"PK\x03\x04":
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            name, infos = audio_entry(z), z.infolist()
+            if sum(i.file_size for i in infos if i.filename != name) > MAX_UNPACKED:
+                raise ValueError(f"the score unpacks to more than {MAX_UNPACKED >> 20} MB")
+            entries = [(i, b"\0" if i.filename == name else z.open(i).read(i.file_size)) for i in infos]
+        data = rezip(entries)
+    elif data[:4] == b"BCFZ" and not 0 <= int.from_bytes(data[4:8], "little", signed=True) <= MAX_UNPACKED:
+        raise ValueError(f"the score unpacks to more than {MAX_UNPACKED >> 20} MB")
+    ctx = engine()
+    try:
+        out = json.loads(ctx.call("openmusic.toMidi", data.hex(), timeout_sec=120, max_memory=MAX_V8))
+    finally:
+        ctx.set_hard_memory_limit(0)       # the engine is shared: no limit for to_gp / dump
+    return bytes.fromhex(out.pop("midi")), out
 
 
 def summary(song):

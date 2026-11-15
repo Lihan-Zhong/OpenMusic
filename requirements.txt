@@ -22,3 +22,5 @@ resampy==0.4.3
 # (ISC, embeds V8) runs the vendored alphaTab (experiments/vendor/alphatab/) that writes it as a .gp
 PyGuitarPro==0.11
 mini-racer==0.14.1
+# Minecraft note block songs (minecraft/export_nbs.py): pynbs (MIT) writes Open Note Block Studio's .nbs format
+pynbs==1.1.0
