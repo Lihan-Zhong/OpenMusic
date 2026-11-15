@@ -45,6 +45,8 @@
 - **Windows**：正式版 [3.11.0](https://github.com/OpenNBS/NoteBlockStudio/releases/latest)。
 - **Mac**：正式版只有 Windows 版。用 [3.12.0-rc.1 预览版](https://github.com/OpenNBS/NoteBlockStudio/releases/tag/v3.12.0-rc.1) 里的 `4.Minecraft.Note.Block.Studio.dmg`（需要 macOS 12 以上），或者通过它 GitHub 首页上的 TestFlight 链接安装。
 
+注意：这些都是 Note Block Studio 这个编曲软件的安装包（它的全名叫 "Minecraft Note Block Studio"，文件名前的 1–4 只是序号），不是 Minecraft 游戏本身。Note Block Studio 单独就能打开、试听和导出；Minecraft Java 版要另外用官方启动器安装（见第 4 步）。
+
 ## 3. 在 Note Block Studio 里试听、导出结构
 
 1. 打开 `.nbs`，播放试听，可以直接改音。
@@ -148,6 +150,8 @@ What the conversion does:
 
 - **Windows**: the stable [3.11.0](https://github.com/OpenNBS/NoteBlockStudio/releases/latest).
 - **Mac**: the stable release is Windows-only. Use `4.Minecraft.Note.Block.Studio.dmg` from the [3.12.0-rc.1 prerelease](https://github.com/OpenNBS/NoteBlockStudio/releases/tag/v3.12.0-rc.1) (macOS 12 or later), or the TestFlight linked from its GitHub page.
+
+Note: these are installers of the Note Block Studio editor (its full name is "Minecraft Note Block Studio"; the 1–4 in front of the file names only number them), not of the game. Note Block Studio opens, plays and exports songs on its own; Minecraft Java Edition is installed separately with the official launcher (step 4).
 
 ## 3. Listen and export the structure in Note Block Studio
 
