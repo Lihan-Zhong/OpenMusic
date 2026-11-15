@@ -30,6 +30,10 @@ page with the workbench and practice player inside DSH, and a session can browse
 from chat. Installing it is one instruction to the agent in the Harness — install the `dsh/` directory as a bundle;
 see [dsh/README.md](dsh/README.md).
 
+A **Minecraft redstone music** part is also in the works: it turns a Guitar Pro score or a MIDI file into a note
+block song, to export as a visible redstone build in the game. It is not finished yet; see
+[minecraft/README.md](minecraft/README.md).
+
 ## How it works
 
 ![How it works](docs/flow/flow.en.png)
@@ -302,6 +306,7 @@ The two complement each other: for the most models and the best possible stem fi
 ```
 OpenMusic.command     double-click to start the workbench (macOS); OpenMusic.bat is the Windows one
 dsh/                  DeepSeek Harness plugin: the workbench/player as a DSH page, plus tools (see dsh/README.md)
+minecraft/            Minecraft redstone music (not finished): Guitar Pro / MIDI to note block songs (see minecraft/README.md)
 experiments/
   app.py              the workbench: a local web page that takes a song step by step to the practice player
   common.py           paths, audio I/O, SDR scoring
