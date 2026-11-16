@@ -1,14 +1,16 @@
-# OpenMusic → Minecraft 音符盒（试验）
+# OpenMusic → Minecraft 红石音乐（.nbs）
 
 **中文** | [English](#english)
 
-把 Guitar Pro 谱或 MIDI 文件转成 [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio) 的 `.nbs` 歌曲，再用 Note Block Studio 导出成 Minecraft Java 版的结构：一条走道，两边是看得见的中继器、红石线和音符盒，按下按钮就开始演奏。
+就像 OpenMusic 能导出 Guitar Pro 谱一样，它也能导出 **Minecraft 红石音乐文件 `.nbs`**：把扒谱得到的 MIDI，或者 Guitar Pro 谱，转成开源红石音乐编辑器 [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio)（下面简称 NBS）的 `.nbs` 格式。之后在 NBS 里试听、继续编辑，再由 NBS 导出成能放进 Minecraft 世界的红石结构：一条走道，两边是看得见的中继器、红石线和音符盒，按下按钮就开始演奏。
+
+OpenMusic 负责生成 `.nbs`，导出结构交给 NBS。目前只适配了 NBS，而 NBS 只能导出 Java 版的结构，所以红石音乐暂时只支持 **Java 版**；基岩版见下面「[基岩版](#基岩版)」。
 
 推荐的流程：OpenMusic 扒谱 → 下载 Guitar Pro 谱 → 在 Guitar Pro 8 里把贝斯和鼓修准 → 把修好的谱转成 `.nbs`。网上下载的 `.gp` / `.gpx` / `.gp5` 谱，以及任何 MIDI 文件，也能直接转。
 
 ## 1. 生成 .nbs
 
-- **工作台**：页面最下面的「Minecraft 音符盒」卡片。把文件拖进去，勾选音轨（默认贝斯和鼓），点「生成 .nbs」就会下载。文件不会存进曲库。
+- **工作台**：页面最下面的「Minecraft 音符盒」卡片。把 Guitar Pro 谱或 MIDI 文件拖进去，勾选音轨（默认贝斯和鼓），点「生成 .nbs」就会下载。文件不会存进曲库。练习播放器里没有这个功能，它只管练琴。
 - **命令行**（在项目文件夹里）：
 
   ```bash
@@ -22,7 +24,7 @@
   - `--velocities`：保留谱子里的强弱。
   - `--out`：指定输出位置。不写就放进 `minecraft/output_nbs/`，用输入的文件名或歌曲文件夹名命名（这个文件夹不会提交到 git）。
 
-  也可以直接给 OpenMusic 的歌曲文件夹，比如 `outputs/roformer_sw_full/<歌名>`，用它的扒谱 MIDI。
+  要转 OpenMusic 扒出来的 MIDI，就直接给歌曲文件夹，比如 `outputs/roformer_sw_full/<歌名>`：这首歌各条分轨的 MIDI 会一起转（默认贝斯和鼓，`--tracks all` 全部）。
 
 转换时会做这些事：
 
@@ -48,7 +50,7 @@
 
 注意：这些都是 Note Block Studio 这个编曲软件的安装包（它的全名叫 "Minecraft Note Block Studio"，文件名前的 1–4 只是序号），不是 Minecraft 游戏本身。Note Block Studio 单独就能打开、试听和导出；Minecraft Java 版要另外用官方启动器安装（见第 4 步）。
 
-## 3. 在 Note Block Studio 里试听、导出结构
+## 3. 在 Note Block Studio 里试听、编辑、导出结构
 
 1. 打开 `.nbs`，播放试听，可以直接改音。
 2. 导出：
@@ -75,6 +77,10 @@
 
 可选：`/gamerule advance_time false`（时间停住）、`/gamerule advance_weather false`、`/gamerule spawn_mobs false`。
 
+## 基岩版
+
+还没做。NBS 只能导出 Java 版的结构，它的维护者也已经表示不打算支持基岩版（[#587](https://github.com/OpenNBS/NoteBlockStudio/issues/587)：基岩版对结构大小、导入时的区块加载和同时发声数（32 个）都有限制）；截至 2026 年 11 月，NBS 的各个 fork 也都不能导出基岩版。我们计划之后在 OpenMusic 里加一个小步骤：把 NBS 导出的 Java 版结构（`.nbt`）转成基岩版的 `.mcstructure`，保留每个音符盒的音高和每个中继器的延时，并在基岩版里实测。
+
 ## 限制
 
 - 整首歌只有一个速度，而且只能是 150、100、75 BPM 这样的几档（每拍整数个红石刻）。
@@ -83,7 +89,6 @@
 - 音符盒只能敲出固定的音高，不能弯音。滑音的目标音会再敲一下（连音滑奏也一样，虽然吉他上那个音不重新拨弦），滑的过程听不到；滑入、滑出只响按的那个品的音。推弦、颤音杆和揉弦也听不到：推弦的音只响按的那个品的音高，预推弦也是。MIDI 文件里的弯音（pitch bend）一律忽略，用弯音写的滑音只响第一个音。
 - 反复记号每处最多演奏 8 遍。
 - 吉他扒谱太密，默认不转；修好的吉他谱可以用 `--tracks` 加进来。
-- 基岩版还没做（计划：用 Python 把结构转成 `.mcstructure`）。
 
 ## 测试
 
@@ -105,17 +110,19 @@
 
 <a id="english"></a>
 
-# OpenMusic → Minecraft note blocks (experimental)
+# OpenMusic → Minecraft redstone music (.nbs)
 
-[中文](#openmusic--minecraft-音符盒试验) | **English**
+[中文](#openmusic--minecraft-红石音乐nbs) | **English**
 
-Turn a Guitar Pro score or a MIDI file into an [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio) `.nbs` song, then export it from Note Block Studio as a Minecraft Java structure: a walkway with visible repeaters, redstone and note blocks on both sides that plays when you press the button.
+Just as OpenMusic exports Guitar Pro scores, it exports **Minecraft redstone music files (`.nbs`)**: the MIDI of a transcription, or a Guitar Pro score, becomes a `.nbs` song for the open-source redstone music editor [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio) (NBS below). In NBS you listen, edit further, and export a redstone build to place in a Minecraft world: a walkway with visible repeaters, redstone and note blocks on both sides that plays when you press the button.
+
+OpenMusic makes the `.nbs`; NBS exports the build. Only NBS is supported for now, and NBS exports Java Edition builds only, so redstone music works in **Java Edition** for now; for Bedrock see "[Bedrock Edition](#bedrock-edition)" below.
 
 Suggested route: transcribe in OpenMusic → download the Guitar Pro file → fix the bass and drums in Guitar Pro 8 → convert the fixed score to `.nbs`. Scores downloaded elsewhere (`.gp` / `.gpx` / `.gp5`) and any MIDI file work too.
 
 ## 1. Make the .nbs
 
-- **Workbench**: the "Minecraft note blocks" card at the bottom of the page. Drop a file on it, tick the tracks (bass and drums by default) and click "Build .nbs" to download it. Nothing is stored in the library.
+- **Workbench**: the "Minecraft note blocks" card at the bottom of the page. Drop a Guitar Pro score or a MIDI file on it, tick the tracks (bass and drums by default) and click "Build .nbs" to download it. Nothing is stored in the library. The practice player has no such button: it is for practising.
 - **Command line** (in the project folder):
 
   ```bash
@@ -129,7 +136,7 @@ Suggested route: transcribe in OpenMusic → download the Guitar Pro file → fi
   - `--velocities`: keep the score's dynamics.
   - `--out`: say where to write. Without it the file goes to `minecraft/output_nbs/`, named after the input file or song folder (the folder is not committed to git).
 
-  An OpenMusic song folder such as `outputs/roformer_sw_full/<song>` works too, using its transcription MIDI.
+  For the MIDI OpenMusic transcribed, give the song folder, such as `outputs/roformer_sw_full/<song>`: the MIDI of the song's stems is converted together (bass and drums by default, `--tracks all` for all).
 
 What the conversion does:
 
@@ -155,7 +162,7 @@ What the conversion does:
 
 Note: these are installers of the Note Block Studio editor (its full name is "Minecraft Note Block Studio"; the 1–4 in front of the file names only number them), not of the game. Note Block Studio opens, plays and exports songs on its own; Minecraft Java Edition is installed separately with the official launcher (step 4).
 
-## 3. Listen and export the structure in Note Block Studio
+## 3. Listen, edit and export the structure in Note Block Studio
 
 1. Open the `.nbs`, play it, fix notes if you like.
 2. Export:
@@ -182,6 +189,10 @@ Note: these are installers of the Note Block Studio editor (its full name is "Mi
 
 Optional: `/gamerule advance_time false`, `/gamerule advance_weather false`, `/gamerule spawn_mobs false`.
 
+## Bedrock Edition
+
+Not done yet. NBS exports Java Edition builds only, and its maintainers have said they will not add Bedrock export ([#587](https://github.com/OpenNBS/NoteBlockStudio/issues/587): Bedrock limits a structure's size, needs every chunk it covers loaded during import, and plays at most 32 sounds at once); as of November 2026, no fork of NBS exports to Bedrock either. We plan a small step in OpenMusic that turns the Java structure NBS exports (`.nbt`) into a Bedrock `.mcstructure`, keeping every note block's pitch and every repeater's delay, tested in Bedrock.
+
 ## Limits
 
 - One tempo per song, and only steps such as 150, 100 or 75 BPM (a whole number of redstone ticks per beat).
@@ -190,7 +201,6 @@ Optional: `/gamerule advance_time false`, `/gamerule advance_weather false`, `/g
 - A note block strikes a fixed pitch and cannot bend. A slide's target note is struck again (a legato slide's too, although the guitar does not pick it), and the slide itself is not heard; a slide into or out of a note plays just its fret. Neither are bends, the whammy bar or vibrato: a bent note keeps the pitch of its fret, a pre-bend too. Pitch bends in a MIDI file are ignored, so a slide written as a pitch bend plays only its first note.
 - Each repeat plays at most 8 times.
 - Guitar transcriptions are too dense, so they are left out by default; add a fixed guitar part with `--tracks`.
-- Bedrock Edition is not done yet (planned: a Python converter to `.mcstructure`).
 
 ## Tests
 

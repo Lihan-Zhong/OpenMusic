@@ -44,11 +44,13 @@ and keep changes small and focused.
   `outputs/mp3`.
 - Separation experiments are in docs/experiments.md (classical DSP up to 4.8 dB, Demucs, BS-RoFormer-SW 10.3 dB);
   drum transcription in docs/drums.md.
-- `minecraft/` (experimental, bilingual minecraft/README.md): `export_nbs.py` turns a Guitar Pro file (.gp/.gpx/
+- `minecraft/` (bilingual minecraft/README.md): `export_nbs.py` turns a Guitar Pro file (.gp/.gpx/
   .gp3-5, through `gp7.to_midi`: alphaTab's own MIDI, repeats expanded, every voice) or a MIDI file or song folder
   into an Open Note Block Studio `.nbs` (pynbs 1.1.0, format v5; written to the git-ignored `minecraft/output_nbs/`
-  unless --out), by default the bass and drums; the user exports the structure from Note Block Studio. Details
-  that matter: 10 ticks/s with a whole number of ticks per beat
+  unless --out), by default the bass and drums; the user edits it in Note Block Studio and exports the structure
+  from there (Java Edition only: NBS's maintainers declined Bedrock in issue #587, and no fork has it; the plan is a
+  small .nbt -> .mcstructure step in OpenMusic, not an NBS fork). Details that matter: 10 ticks/s with a whole
+  number of ticks per beat
   (grid choice only among 16th grids for unquantised MIDI), notes rounded to the nearest tick (transcribed drums
   sit ~10 ms early) in whole ticks (a float tick of -1 corrupts the file), every key folded into 33-57, notes
   sorted by (tick, layer) with no duplicates (pynbs does not check), full velocity unless --velocities (the

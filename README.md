@@ -14,7 +14,7 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 
 现在还多了一个 **DeepSeek Harness 插件**（`dsh/`）：装进 Harness 后，左侧栏会多一个 **OpenMusic** 页面，工作台和练习播放器直接出现在 DSH 里；也可以直接在对话里让 agent 看曲库、分轨、扒谱。安装只要让 Harness 里的 agent 把 `dsh/` 目录作为 bundle 装上（一句指令），详见 [dsh/README.md](dsh/README.md)。
 
-另外，**Minecraft 红石音乐**的部分正在做：把 Guitar Pro 谱或 MIDI 转成音符盒歌曲，再导出成游戏里看得见的红石结构。目前还没有完工，进度见 [minecraft/README.md](minecraft/README.md)。
+另外，OpenMusic 还能导出 **Minecraft 红石音乐**：就像导出 Guitar Pro 谱一样，它可以把扒谱得到的 MIDI 导出成 `.nbs` 文件，也就是开源红石音乐编辑器 [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio)（NBS）的格式；工作台里的「Minecraft 音符盒」卡片还能把 Guitar Pro 谱（比如在 Guitar Pro 8 里修好的那份）或任何 MIDI 文件转成 `.nbs`。拿到 `.nbs` 以后，在 NBS 里试听、自行编辑，再由 NBS 导出成能放进 Minecraft 世界的红石结构。目前只适配了 NBS，而 NBS 只能导出 Java 版的结构，所以红石音乐暂时只支持 Java 版；基岩版还没做，计划之后在 OpenMusic 里加一步，把 NBS 导出的结构转成基岩版的格式。详见 [minecraft/README.md](minecraft/README.md)。
 
 ## 整体流程
 
@@ -155,7 +155,7 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 ```
 OpenMusic.command     双击启动工作台（macOS）；OpenMusic.bat 是 Windows 版
 dsh/                  DeepSeek Harness 插件：工作台/播放器的 DSH 页面和工具（见 dsh/README.md）
-minecraft/            Minecraft 红石音乐（还没完工）：Guitar Pro / MIDI 转音符盒歌曲（见 minecraft/README.md）
+minecraft/            Minecraft 红石音乐：Guitar Pro / MIDI 导出为 Note Block Studio 的 .nbs（见 minecraft/README.md）
 experiments/
   app.py              工作台：一个本地网页，一步步把歌处理到练习播放器
   common.py           路径、读写音频、SDR 打分

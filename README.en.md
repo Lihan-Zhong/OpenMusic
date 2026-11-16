@@ -30,9 +30,14 @@ page with the workbench and practice player inside DSH, and a session can browse
 from chat. Installing it is one instruction to the agent in the Harness — install the `dsh/` directory as a bundle;
 see [dsh/README.md](dsh/README.md).
 
-A **Minecraft redstone music** part is also in the works: it turns a Guitar Pro score or a MIDI file into a note
-block song, to export as a visible redstone build in the game. It is not finished yet; see
-[minecraft/README.md](minecraft/README.md).
+OpenMusic also exports **Minecraft redstone music**: just as it exports Guitar Pro scores, it exports the
+transcribed MIDI as a `.nbs` file, the format of the open-source redstone music editor
+[Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio) (NBS), and the workbench's "Minecraft note
+blocks" card turns a Guitar Pro score (one you fixed in Guitar Pro 8, say) or any MIDI file into a `.nbs`. Open
+the `.nbs` in NBS to listen and edit it, and let NBS export a redstone build to place in a Minecraft world. Only
+NBS is supported for now, and NBS exports Java Edition builds only, so redstone music works in Java Edition for
+now; Bedrock is not done yet: we plan a step in OpenMusic that turns the build NBS exports into Bedrock's format.
+See [minecraft/README.md](minecraft/README.md).
 
 ## How it works
 
@@ -306,7 +311,7 @@ The two complement each other: for the most models and the best possible stem fi
 ```
 OpenMusic.command     double-click to start the workbench (macOS); OpenMusic.bat is the Windows one
 dsh/                  DeepSeek Harness plugin: the workbench/player as a DSH page, plus tools (see dsh/README.md)
-minecraft/            Minecraft redstone music (not finished): Guitar Pro / MIDI to note block songs (see minecraft/README.md)
+minecraft/            Minecraft redstone music: Guitar Pro / MIDI to Note Block Studio .nbs files (see minecraft/README.md)
 experiments/
   app.py              the workbench: a local web page that takes a song step by step to the practice player
   common.py           paths, audio I/O, SDR scoring
