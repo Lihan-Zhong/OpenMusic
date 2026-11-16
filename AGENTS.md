@@ -46,7 +46,8 @@ and keep changes small and focused.
   drum transcription in docs/drums.md.
 - `minecraft/` (experimental, bilingual minecraft/README.md): `export_nbs.py` turns a Guitar Pro file (.gp/.gpx/
   .gp3-5, through `gp7.to_midi`: alphaTab's own MIDI, repeats expanded, every voice) or a MIDI file or song folder
-  into an Open Note Block Studio `.nbs` (pynbs 1.1.0, format v5), by default the bass and drums; the user exports
+  into an Open Note Block Studio `.nbs` (pynbs 1.1.0, format v5; written to the git-ignored `minecraft/output_nbs/`
+  unless --out), by default the bass and drums; the user exports
   the structure from Note Block Studio. Details that matter: 10 ticks/s with a whole number of ticks per beat
   (grid choice only among 16th grids for unquantised MIDI), notes rounded to the nearest tick (transcribed drums
   sit ~10 ms early) in whole ticks (a float tick of -1 corrupts the file), every key folded into 33-57, notes
@@ -61,7 +62,8 @@ and keep changes small and focused.
 ## Rules
 - Stems are read-only for every step after the split; analysis, MIDI and Guitar Pro never change stem audio
   (test_transcribe checks the stems stay byte for byte the same). MIDI and Guitar Pro are references.
-- Never commit `data/`, `songs/`, `outputs/` or `plugins/` (copyright and licences); see `.gitignore`.
+- Never commit `data/`, `songs/`, `outputs/`, `plugins/` or `minecraft/output_nbs/` (copyright and licences); see
+  `.gitignore`.
 - ADTOF-pytorch is an optional plugin the user installs into `plugins/`. Its weights are CC BY-NC-SA 4.0: never
   commit, vendor or import it; `transcribe.py --drums auto` runs its `adtof` command as a subprocess when it is
   installed, and drums.notes.json's "backend" says which model was used.

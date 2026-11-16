@@ -1,6 +1,6 @@
 """Turn a Guitar Pro score or a MIDI file into an Open Note Block Studio song (.nbs) for Minecraft note blocks.
 
-    .venv/bin/python minecraft/export_nbs.py "songs/电动少女(Live).gp"
+    .venv/bin/python minecraft/export_nbs.py "songs/电动少女(Live).gp"     # -> minecraft/output_nbs/电动少女(Live).nbs
     .venv/bin/python minecraft/export_nbs.py "songs/电动少女(Live).gp" --list      # its tracks; writes nothing
     .venv/bin/python minecraft/export_nbs.py "outputs/roformer_sw_full/<song>"     # OpenMusic's own MIDI
     .venv/bin/python minecraft/export_nbs.py score.mid --tracks bass,drums,3 --out song.nbs
@@ -44,8 +44,9 @@ Minecraft shapes the result:
 Each track gets its own layers in Note Block Studio, named after it (a drum kit one per kit piece). The file is
 format version 5, which Note Block Studio 3.11 (Windows) and 3.12 (macOS too) both open; it is written with
 pynbs (MIT). Open it in Note Block Studio, listen, adjust, and export it as a structure for a Java world (see
-minecraft/README.md). The .nbs of a song folder goes to <song>/minecraft/<song>.nbs and that of a file next to
-it, unless --out says where; the input is only read. Errors are one line on stderr and a non-zero exit code.
+minecraft/README.md). The .nbs goes to OUTPUT_DIR (minecraft/output_nbs/, git-ignored), named after the file or
+the song folder, unless --out says where; the input is only read. Errors are one line on stderr and a non-zero
+exit code.
 """
 import argparse
 import io
@@ -63,6 +64,7 @@ import pynbs
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "experiments"))      # gp7 (alphaTab) for .gp files
+OUTPUT_DIR = ROOT / "minecraft" / "output_nbs"     # where a .nbs goes without --out (git-ignored)
 
 for _stream in (sys.stdout, sys.stderr):           # Chinese names on a GBK / cp1252 console: '?' rather than a crash
     if hasattr(_stream, "reconfigure"):
@@ -670,7 +672,7 @@ def main():
     ap.add_argument("--ticks-per-beat", type=int, help="2..12 redstone ticks per beat (default: chosen)")
     ap.add_argument("--velocities", action="store_true",
                     help="keep the score's velocities (a structure plays every note alike, so by default all are 100)")
-    ap.add_argument("--out", help="where to write the .nbs")
+    ap.add_argument("--out", help="where to write the .nbs (default: minecraft/output_nbs/<name>.nbs)")
     ap.add_argument("--list", action="store_true", help="list the tracks and write nothing")
     ap.add_argument("--json", action="store_true", help="print the track list or the result as one line of JSON")
     args = ap.parse_args()
@@ -688,8 +690,7 @@ def main():
     result = build(song, chosen, args.ticks_per_beat, instrument_choices(args.instrument, parts, chosen),
                    args.velocities)
     src = Path(args.input)
-    out = Path(args.out) if args.out else (src / "minecraft" / f"{src.name}.nbs" if src.is_dir()
-                                           else src.with_suffix(".nbs"))
+    out = Path(args.out) if args.out else OUTPUT_DIR / f"{src.name if src.is_dir() else src.stem}.nbs"
     write(nbs_bytes(song, result), out)
     if args.json:
         print(json.dumps(summary(song, result)))

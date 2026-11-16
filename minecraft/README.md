@@ -20,7 +20,7 @@
   - `--instrument "Electric Bass=didgeridoo"`：给一条要转的音高轨换乐器；对不上音轨时会报错。
   - `--ticks-per-beat 6`：换节奏网格。
   - `--velocities`：保留谱子里的强弱。
-  - `--out`：指定输出位置。
+  - `--out`：指定输出位置。不写就放进 `minecraft/output_nbs/`，用输入的文件名或歌曲文件夹名命名（这个文件夹不会提交到 git）。
 
   也可以直接给 OpenMusic 的歌曲文件夹，比如 `outputs/roformer_sw_full/<歌名>`，用它的扒谱 MIDI。
 
@@ -126,7 +126,7 @@ Suggested route: transcribe in OpenMusic → download the Guitar Pro file → fi
   - `--instrument "Electric Bass=didgeridoo"`: change a converted pitched track's instrument; a track it cannot match is an error.
   - `--ticks-per-beat 6`: change the rhythm grid.
   - `--velocities`: keep the score's dynamics.
-  - `--out`: say where to write.
+  - `--out`: say where to write. Without it the file goes to `minecraft/output_nbs/`, named after the input file or song folder (the folder is not committed to git).
 
   An OpenMusic song folder such as `outputs/roformer_sw_full/<song>` works too, using its transcription MIDI.
 

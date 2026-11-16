@@ -10,9 +10,11 @@ __pycache__/
 # data/: MUSDB18 sample (non-commercial research licence) and song excerpts
 # songs/: your own music files
 # outputs/: separated stems and experiment scratch
+# minecraft/output_nbs/: note block songs made from scores (minecraft/export_nbs.py)
 data/
 songs/
 outputs/
+minecraft/output_nbs/
 
 # Optional third-party plugins the user installs themselves (e.g. plugins/ADTOF-pytorch, whose weights are
 # CC BY-NC-SA 4.0): never commit them.

@@ -19,7 +19,8 @@ export_nbs.py's tables, so a changed map fails.
    once, the 32nd on the next 16th), at 4 ticks per beat = 150 BPM, the bass on the Double Bass folded into its
    two octaves, each drum on its kit piece's instrument and key, all at velocity 100 (--velocities keeps the
    score's), the sand (Snare Drum) layers after all others, ASCII names, version 5, 10 ticks/s. --list writes
-   nothing (checked in a folder of its own); --tracks and --instrument by number, name in any case and kind;
+   nothing (checked in a folder of its own and in minecraft/output_nbs/); --tracks and --instrument by number,
+   name in any case and kind;
    --instrument errors for an unknown, a drum or an unconverted track; a number never matches a track's name.
 2. Two MIDI files like OpenMusic's transcriptions, notes 15 ms off the grid: one at 150 BPM with a 2-beat pickup
    (the pickup is padded so that the first downbeat sits on Note Block Studio's bar line), one at 88 BPM whose
@@ -39,8 +40,9 @@ export_nbs.py's tables, so a changed map fails.
 5. Grid choice on quantised notes: straight 8ths at 105 BPM take 6 ticks per beat (100 BPM), 16ths at 110 take 4
    (150 BPM) and at 105 take 8 (75 BPM, nearer than 150), a shuffle in triplets at 100 BPM takes 6; a transcribed
    first note a little before the first downbeat starts the song there, not a silent pickup bar earlier.
-6. An OpenMusic song folder: the .nbs goes to <song>/minecraft/<song>.nbs and nothing else in the folder changes;
-   with --tracks all the vocals land on the Piano (their range), not on their program's Flute.
+6. An OpenMusic song folder: without --out the .nbs goes to minecraft/output_nbs/<song>.nbs (the test removes it
+   again, and leaves a file of that name it did not make alone) and the song folder does not change; with
+   --tracks all the vocals land on the Piano (their range), not on their program's Flute.
 7. The command line: errors (missing file, not a score, unknown track, bad instrument, bad grid) are a non-zero
    exit code and one line on stderr.
 8. The workbench (experiments/app.py on a free port, with a temp folder of its own): /api/nbs lists the tracks
@@ -354,9 +356,13 @@ def check_gp():
 
     lone = fresh("gp-list")                                  # --list writes nothing: in a folder of its own
     shutil.copy(src, lone / src.name)
+    default = export_nbs.OUTPUT_DIR / f"{src.stem}.nbs"     # nor in the default place
+    default_before = default.stat().st_mtime_ns if default.exists() else None
     listed = run(lone / src.name, "--list")
     info = json.loads(run(lone / src.name, "--list", "--json").stdout)
     expect(tree(lone) == {src.name: before}, f"gp --list wrote {sorted(tree(lone))}")
+    expect((default.stat().st_mtime_ns if default.exists() else None) == default_before,
+           f"gp --list wrote minecraft/output_nbs/{default.name}")
     expect("muted" in listed.stdout and "Electric Bass" in listed.stdout, f"gp --list: {listed.stdout}")
     expect([t["kind"] for t in info["tracks"]] == ["bass", "drums", "guitar"]
            and [t["default"] for t in info["tracks"]] == [True, True, False]
@@ -638,14 +644,20 @@ def check_song_folder():
     (song / "bass.mp3").write_bytes(os.urandom(2048))
     (song / "stems.json").write_text('{"model": "test"}')
     before = tree(song)
-    run(song)
-    out = song / "minecraft" / f"{song.name}.nbs"
-    if expect(out.is_file(), f"song folder: no {out.relative_to(TEST_ROOT)}"):
-        head, notes, layers = check_file(out, "song folder")
-        expect([l[0] for l in layers] == ["bass", "drums: Hi-hat"], f"song folder: layers {[l[0] for l in layers]}")
-        expect(head["original_author"] == "Test Band", f"song folder: author {head['original_author']!r}")
-    after = {k: v for k, v in tree(song).items() if not k.startswith("minecraft/")}
-    expect(after == before, "song folder: files besides minecraft/ changed")
+    out = export_nbs.OUTPUT_DIR / f"{song.name}.nbs"            # the default place, without --out
+    if out.exists():
+        print(f"  (skipped the default place: {out.name} is already in {export_nbs.OUTPUT_DIR.name}/)")
+    else:
+        try:
+            run(song)
+            if expect(out.is_file(), f"song folder: no {out.name} in minecraft/output_nbs/"):
+                head, notes, layers = check_file(out, "song folder")
+                expect([l[0] for l in layers] == ["bass", "drums: Hi-hat"],
+                       f"song folder: layers {[l[0] for l in layers]}")
+                expect(head["original_author"] == "Test Band", f"song folder: author {head['original_author']!r}")
+        finally:
+            out.unlink(missing_ok=True)                          # the test's own file only
+    expect(tree(song) == before, "song folder: its files changed")
     _, notes, layers = convert(song, TEST_ROOT / "library" / "all.nbs", "--tracks", "all", label="song folder --tracks all")
     vocals = next((i for i, l in enumerate(layers) if l[0] == "vocals"), None)
     expect(vocals is not None and {n[2] for n in notes if n[1] == vocals} == {PIANO},
