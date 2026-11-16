@@ -14,7 +14,9 @@ OpenMusic 是一个给乐手用的开源**练琴**、**扒谱**小工具：把�
 
 现在还多了一个 **DeepSeek Harness 插件**（`dsh/`）：装进 Harness 后，左侧栏会多一个 **OpenMusic** 页面，工作台和练习播放器直接出现在 DSH 里；也可以直接在对话里让 agent 看曲库、分轨、扒谱。安装只要让 Harness 里的 agent 把 `dsh/` 目录作为 bundle 装上（一句指令），详见 [dsh/README.md](dsh/README.md)。
 
-另外，OpenMusic 还能导出 **Minecraft 红石音乐**：就像导出 Guitar Pro 谱一样，它可以把扒谱得到的 MIDI 导出成 `.nbs` 文件，也就是开源红石音乐编辑器 [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio)（NBS）的格式；工作台里的「Minecraft 音符盒」卡片还能把 Guitar Pro 谱（比如在 Guitar Pro 8 里修好的那份）或任何 MIDI 文件转成 `.nbs`。拿到 `.nbs` 以后，在 NBS 里试听、自行编辑，再由 NBS 导出成能放进 Minecraft 世界的红石结构。目前只适配了 NBS，而 NBS 只能导出 Java 版的结构，所以红石音乐暂时只支持 Java 版；基岩版还没做，计划之后在 OpenMusic 里加一步，把 NBS 导出的结构转成基岩版的格式。详见 [minecraft/README.md](minecraft/README.md)。
+我们最近又开发了一个新功能：OpenMusic 还能导出 **Minecraft 红石音乐**，就像导出 Guitar Pro 谱一样！它可以把扒谱得到的 MIDI **直接**导出成 `.nbs` 文件，也就是开源红石音乐编辑器 [Open Note Block Studio](https://github.com/OpenNBS/NoteBlockStudio)（NBS）的格式；等你在 Guitar Pro 里把谱子微调好了，也可以把 Guitar Pro 文件拖进工作台的「Minecraft 音符盒」卡片，转成 `.nbs`。拿到 `.nbs` 以后，你可以在 NBS 里试听，再按自己的想法编辑修改，最后由 NBS 导出成能放进 Minecraft 世界的红石结构。
+
+目前我们只适配了 NBS 这一个开源工具。美中不足的是，NBS 只能导出 Minecraft Java 版的红石结构，所以红石音乐暂时只支持 Java 版，基岩版还没做！接下来的计划是让转换出来的红石结构也支持基岩版的格式。详见 [minecraft/README.md](minecraft/README.md)。
 
 ## 整体流程
 
