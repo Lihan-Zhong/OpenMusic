@@ -26,7 +26,7 @@
 
 转换时会做这些事：
 
-- **速度**：红石最小一步是 0.1 秒，所以歌曲固定按每秒 10 刻播放，每拍分成整数个刻：每拍 4 刻 = 150 BPM（16 分音符准确），6 刻 = 100 BPM（8 分音符和三连音准确），8 刻 = 75 BPM，以此类推。程序会挑不打乱节奏、又最接近原速的那一档，并报告速度变了多少（例如《电动少女》122 BPM → 150 BPM，快 23%）。整首歌只有一个速度。
+- **速度**：红石最小一步是 0.1 秒，所以歌曲固定按每秒 10 刻播放，每拍分成整数个刻：每拍 4 刻 = 150 BPM（16 分音符准确），6 刻 = 100 BPM（8 分音符和三连音准确），8 刻 = 75 BPM，以此类推。程序会挑不打乱节奏、又最接近原速的那一档，并报告速度变了多少（例如《电动少女》122 BPM → 150 BPM，快 23%）。整首歌只有一个速度。扫弦的几根弦放在同一刻：Guitar Pro 把一次扫弦的各根弦依次错开一点（多数只有几十毫秒，.gp5 里最慢的扫弦有一个八分音符那么长），照原样对到红石刻上，后面几根弦可能晚一刻甚至更多。琶音（arpeggio）保留这种错开，但和别的音一样对到最近的刻上，很快的琶音听起来像和弦。
 - **音高**：每种音符盒乐器只有两个八度，超出的音按八度移进来，所以 Note Block Studio 导出时不会丢音。
 - **音色**：
   - 贝斯用低音提琴（音符盒下面放木头）。
@@ -36,6 +36,7 @@
     - 开镲、军鼓和其他镲片都用 Snare Drum（沙子），所以开镲听起来像高一点的军鼓；
     - 叮叮镲的镲帽用 Bell（金块），牛铃用 Cow Bell（灵魂沙）。
   - 其他轨先按 MIDI 音色选乐器（吉他 → Guitar 羊毛，人声 → Flute 黏土，钢琴 → Piano）。如果另一种乐器的两个八度能多装下 15% 以上的音，就换成那个，比如多数人声的音域更适合 Piano。
+  - 闷音（x）和死音拍弦（dead slap）没有音高，响成「哒」的一声：用鼓映射里军鼓边击（side stick）的声音，即 Click（玻璃）第 41 键，比闭镲低。一下闷音扫弦只响一声，放在这条音轨自己的一层（层名以 `: Dead notes` 结尾）。
 - **强弱**：音符盒没有力度，导出结构时也不管力度，所以所有音都写成最大力度。这样在 Note Block Studio 里听到的，就是游戏里的效果。
 - **高度**：同一刻超过 4 个音时，Note Block Studio 会往上叠一层。军鼓下面的沙子没有东西托着会掉下来，所以用沙子的层都排在最后，它们总在最底层。
 - **名字**：Note Block Studio 每个字符只存一个字节，所以 `.nbs` 里的名字都是 ASCII：中文歌名写成 "OpenMusic song"，中文音轨名写成「类型 + `--list` 编号」，带重音的字母去掉重音。文件名保持原样。
@@ -77,9 +78,9 @@
 ## 限制
 
 - 整首歌只有一个速度，而且只能是 150、100、75 BPM 这样的几档（每拍整数个红石刻）。
-- 网格是每拍 4 刻时，三连音和 32 分音符会被移到最近的 16 分音符上。
+- 网格是每拍 4 刻时，三连音和 32 分音符会被移到最近的 16 分音符上；所以装饰音、快速颤音（trill）、回音和波音的音会挤到一起，像和弦一样同时响。
 - 音符盒没有力度：强弱音一样响。
-- 连音滑奏的目标音不会响（alphaTab 把它当作弯音）；死音拍弦（dead slap）没有音高，也不会响。
+- 音符盒只能敲出固定的音高，不能弯音。滑音的目标音会再敲一下（连音滑奏也一样，虽然吉他上那个音不重新拨弦），滑的过程听不到；滑入、滑出只响按的那个品的音。推弦、颤音杆和揉弦也听不到：推弦的音只响按的那个品的音高，预推弦也是。MIDI 文件里的弯音（pitch bend）一律忽略，用弯音写的滑音只响第一个音。
 - 反复记号每处最多演奏 8 遍。
 - 吉他扒谱太密，默认不转；修好的吉他谱可以用 `--tracks` 加进来。
 - 基岩版还没做（计划：用 Python 把结构转成 `.mcstructure`）。
@@ -132,7 +133,7 @@ Suggested route: transcribe in OpenMusic → download the Guitar Pro file → fi
 
 What the conversion does:
 
-- **Tempo**: redstone moves in steps of 0.1 s, so the song always plays at 10 ticks per second and every beat gets a whole number of ticks: 4 ticks = 150 BPM (exact 16ths), 6 = 100 BPM (exact 8ths and triplets), 8 = 75 BPM, and so on. It picks the one nearest the original tempo that keeps the rhythm, and reports the change (电动少女: 122 BPM → 150 BPM, 23% faster). The whole song has one tempo.
+- **Tempo**: redstone moves in steps of 0.1 s, so the song always plays at 10 ticks per second and every beat gets a whole number of ticks: 4 ticks = 150 BPM (exact 16ths), 6 = 100 BPM (exact 8ths and triplets), 8 = 75 BPM, and so on. It picks the one nearest the original tempo that keeps the rhythm, and reports the change (电动少女: 122 BPM → 150 BPM, 23% faster). The whole song has one tempo. A strum's strings go on one tick: Guitar Pro starts each string a little after the one before (mostly a few hundredths of a second; the slowest .gp5 stroke takes an 8th note), so placed as played on the tick grid, its last strings could land a tick or more late. An arpeggio keeps its spread, rounded to the nearest tick like any note, so a fast one sounds like a chord.
 - **Pitch**: each note block instrument covers two octaves; notes outside are moved by octaves into range, so Note Block Studio's export drops none.
 - **Sound**:
   - The bass plays on the Double Bass (wood under the note block).
@@ -142,6 +143,7 @@ What the conversion does:
     - the open hi-hat, snare and other cymbals on the Snare Drum (sand), so an open hat sounds like a higher snare;
     - the ride bell on the Bell (gold block), the cowbell on the Cow Bell (soul sand).
   - Other tracks start from the instrument of their MIDI program (guitar → Guitar, wool; voice → Flute, clay; piano → Piano). They switch to another instrument when its two octaves hold at least 15% more of their notes; most vocal melodies fit the Piano better, for example.
+  - Dead notes (x) and dead slaps have no pitch, so they play as a click: the drum map's side stick, the Click (glass) at key 41, lower than the closed hi-hat. A dead strum is one click, on a layer of the track's own (its name ends in `: Dead notes`).
 - **Dynamics**: note blocks have no loudness and the structure export ignores velocity, so every note is written at full velocity. Note Block Studio then plays the song as it will sound in the game.
 - **Height**: with more than 4 notes at once, Note Block Studio stacks another level. The Snare Drum's sand falls when nothing holds it up, so the sand layers come last and always fill the lowest level.
 - **Names**: Note Block Studio keeps one byte per character, so names in the `.nbs` are ASCII: a Chinese title becomes "OpenMusic song", a Chinese track name its kind and `--list` number, accents are dropped. The file name stays as it is.
@@ -183,9 +185,9 @@ Optional: `/gamerule advance_time false`, `/gamerule advance_weather false`, `/g
 ## Limits
 
 - One tempo per song, and only steps such as 150, 100 or 75 BPM (a whole number of redstone ticks per beat).
-- On 4 ticks per beat, triplets and 32nds move to the nearest 16th.
+- On 4 ticks per beat, triplets and 32nds move to the nearest 16th, so the notes of grace notes, fast trills, turns and mordents bunch up and sound together like a chord.
 - Note blocks have no loudness: soft and loud notes sound the same.
-- The target note of a legato slide does not sound (alphaTab plays it as a bend), and neither does a dead slap, which has no pitch.
+- A note block strikes a fixed pitch and cannot bend. A slide's target note is struck again (a legato slide's too, although the guitar does not pick it), and the slide itself is not heard; a slide into or out of a note plays just its fret. Neither are bends, the whammy bar or vibrato: a bent note keeps the pitch of its fret, a pre-bend too. Pitch bends in a MIDI file are ignored, so a slide written as a pitch bend plays only its first note.
 - Each repeat plays at most 8 times.
 - Guitar transcriptions are too dense, so they are left out by default; add a fixed guitar part with `--tracks`.
 - Bedrock Edition is not done yet (planned: a Python converter to `.mcstructure`).

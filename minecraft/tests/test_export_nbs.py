@@ -13,15 +13,20 @@ export_nbs.py's tables, so a changed map fails.
 
 1. A Guitar Pro file built here (PyGuitarPro -> Guitar Pro 5 bytes -> experiments/gp7.to_gp, as export_gp.py
    does) with a Chinese title at 122 BPM: a bass whose bars 2-3 repeat, with notes below the Double Bass's range,
-   a 16th run and a tied note; a drum kit whose kick is in the second voice, with a crash, an open hi-hat, a ride,
-   a cowbell, a triangle (Chime), and a snare double stroke a 32nd apart; and a muted guitar with a Chinese name.
-   By default only the bass and drums come out: every note on its tick (the repeat played twice, the tie struck
-   once, the 32nd on the next 16th), at 4 ticks per beat = 150 BPM, the bass on the Double Bass folded into its
-   two octaves, each drum on its kit piece's instrument and key, all at velocity 100 (--velocities keeps the
-   score's), the sand (Snare Drum) layers after all others, ASCII names, version 5, 10 ticks/s. --list writes
-   nothing (checked in a folder of its own and in minecraft/output_nbs/); --tracks and --instrument by number,
-   name in any case and kind;
-   --instrument errors for an unknown, a drum or an unconverted track; a number never matches a track's name.
+   a 16th run of two legato slides into a shift slide, and a tied note; a drum kit whose kick is in the second
+   voice, with a crash, an open hi-hat, a ride, a cowbell, a triangle (Chime), and a snare double stroke a 32nd
+   apart; and a muted guitar with a Chinese name, whose last bar has an E chord strummed down (Guitar Pro 5's 8th
+   stroke) and a dead-note strum strummed up. By default only the bass and drums come out: every note on its
+   tick (the repeat played twice, the target of each slide struck, also the legato one's, which alphaTab only
+   bends to; the tie struck once, the 32nd on the next 16th), at 4 ticks per beat = 150 BPM, the bass on the
+   Double Bass folded into its two octaves, each drum on its kit piece's instrument and key, all at velocity 100
+   (--velocities keeps the score's), the sand (Snare Drum) layers after all others, ASCII names, version 5,
+   10 ticks/s. The guitar alone (at 4 ticks per beat): the strum's six strings on one tick (alphaTab spreads them
+   over a 16th, so the last three would round onto the next tick), the same chord as an arpeggio keeping that
+   spread, and the dead strum as one side-stick click (Click 41) on its own layer; --list counts it as one dead
+   hit. --list writes nothing (checked in a folder of its own and in minecraft/output_nbs/); --tracks and
+   --instrument by number, name in any case and kind; --instrument errors for an unknown, a drum or an
+   unconverted track; a number never matches a track's name.
 2. Two MIDI files like OpenMusic's transcriptions, notes 15 ms off the grid: one at 150 BPM with a 2-beat pickup
    (the pickup is padded so that the first downbeat sits on Note Block Studio's bar line), one at 88 BPM whose
    first beat is squeezed into 46 ms (1304 BPM, as in 草东没有派对 - 大风吹; the song's tempo is still 88, so 8
@@ -35,8 +40,8 @@ export_nbs.py's tables, so a changed map fails.
    one of two guitars converted, and all=bit; --ticks-per-beat 0 (an error, not "automatic").
 4. Guitar Pro edge cases: a zip that unpacks to more than 64 MB (refused without unpacking), a .gpx declaring
    1 GB (refused), a zip without a score (one line of error, not alphaTab's minified source), a repeat count of
-   100000 (played 8 times, quickly), an anacrusis bar (padded like a pickup), and a dead-slapped bass beat
-   (silent, not a chord of every open string).
+   100000 (played 8 times, quickly), an anacrusis bar (padded like a pickup), and a dead-slapped bass beat as the
+   score's only dead thing (one side-stick click, not a chord of every open string; one dead hit in --list).
 5. Grid choice on quantised notes: straight 8ths at 105 BPM take 6 ticks per beat (100 BPM), 16ths at 110 take 4
    (150 BPM) and at 105 take 8 (75 BPM, nearer than 150), a shuffle in triplets at 100 BPM takes 6; a transcribed
    first note a little before the first downbeat starts the song there, not a silent pickup bar earlier.
@@ -86,9 +91,10 @@ SCRIPT = ROOT / "minecraft" / "export_nbs.py"
 FAILURES = []
 # Note Block Studio 3.12's drum map (midi_instruments.gml at v3.12.0-rc.1) for the notes the tests play:
 # General MIDI note -> (Note Block Studio instrument, key). 2 Bass Drum, 3 Snare Drum, 4 Click, 7 Bell, 8 Chime,
-# 11 Cow Bell; notes outside the map play as a Click at 45.
-NBS312 = {36: (2, 41), 38: (3, 48), 42: (4, 54), 44: (4, 56), 46: (3, 55), 49: (3, 53), 51: (3, 50), 53: (7, 50),
-          56: (11, 39), 81: (8, 52)}
+# 11 Cow Bell; notes outside the map play as a Click at 45. 37, the side stick, is how dead notes sound.
+NBS312 = {36: (2, 41), 37: (4, 41), 38: (3, 48), 42: (4, 54), 44: (4, 56), 46: (3, 55), 49: (3, 53), 51: (3, 50),
+          53: (7, 50), 56: (11, 39), 81: (8, 52)}
+DEAD_CLICK = NBS312[37]
 SNARE_DRUM, DOUBLE_BASS, PIANO, GUITAR, DIDGERIDOO = 3, 1, 0, 5, 12
 
 
@@ -214,6 +220,10 @@ def bass_key(pitch):
     return export_nbs.fold(pitch - 30 + 33)
 
 
+def guitar_key(pitch):
+    return export_nbs.fold(pitch - 42 + 33)
+
+
 def tick_of(beat, tpb, start=0.0):
     return int((beat - start) * tpb + 0.5)
 
@@ -233,9 +243,11 @@ def fresh(name):
 # ---------- 1. a Guitar Pro file ----------
 
 def gp_song(first_bar_beats=4, dead_slap=False, repeat_count=None):
-    """(.gp bytes, {track: [(beat, MIDI pitch)]} as played: the repeat twice, the tie once). first_bar_beats < 4
-    makes bar 1 hold only that many quarter notes (for an anacrusis); dead_slap marks the bass's first beat;
-    repeat_count writes that count on the repeat (the expected notes are then not filled in)."""
+    """(.gp bytes, {track: [(beat, MIDI pitch)]} as played: the repeat twice, each slide's target struck, the tie
+    once; and "吉他 dead": [beat] of each dead strum). first_bar_beats < 4 makes bar 1 hold only that many quarter
+    notes (for an anacrusis); dead_slap marks the bass's first beat and leaves the guitar without dead notes, so
+    the slap is the score's only dead thing; repeat_count writes that count on the repeat (the expected notes still
+    assume two plays)."""
     ticks = 960
     song = gp.Song(title="测试歌", artist="Test Band", tempo=122)
     song.measureHeaders, song.tracks = [], []
@@ -254,13 +266,18 @@ def gp_song(first_bar_beats=4, dead_slap=False, repeat_count=None):
         return t
 
     def put(measure, voice, beats):
-        """beats: [(note value, [(string, fret)], tied)]."""
+        """beats: [(note value, [(string, fret)], tied, *effects)]; an effect is a SlideType (out of each note),
+        "dead" (dead notes) or a BeatStroke (a strum)."""
         v = measure.voices[voice]
-        for value, notes, tied in beats:
+        for value, notes, tied, *effects in beats:
             b = gp.Beat(v, duration=gp.Duration(value=value), status=gp.BeatStatus.normal if notes else gp.BeatStatus.rest)
+            b.effect.stroke = next((e for e in effects if isinstance(e, gp.BeatStroke)), b.effect.stroke)
             for string, fret in notes:
-                b.notes.append(gp.Note(b, value=fret, string=string, velocity=gp.Velocities.default,
-                                       type=gp.NoteType.tie if tied else gp.NoteType.normal))
+                note = gp.Note(b, value=fret, string=string, velocity=gp.Velocities.default,
+                               type=gp.NoteType.dead if "dead" in effects else
+                               gp.NoteType.tie if tied else gp.NoteType.normal)
+                note.effect.slides = [e for e in effects if isinstance(e, gp.SlideType)]
+                b.notes.append(note)
             v.beats.append(b)
 
     bass = track(1, "Electric Bass", [43, 38, 33, 28], 0, 33)
@@ -268,8 +285,10 @@ def gp_song(first_bar_beats=4, dead_slap=False, repeat_count=None):
     put(bass.measures[0], 0, quarters[:first_bar_beats])
     for m in bass.measures[1:3]:
         put(m, 0, quarters)
-    put(bass.measures[3], 0, [(16, [(3, 0)], False), (16, [(3, 2)], False), (16, [(3, 4)], False),
-                              (16, [(3, 5)], False),                          # A1 B1 C#2 D2
+    put(bass.measures[3], 0, [(16, [(4, 5)], False, gp.SlideType.legatoSlideTo),
+                              (16, [(4, 7)], False, gp.SlideType.legatoSlideTo),
+                              (16, [(4, 9)], False, gp.SlideType.shiftSlideTo),
+                              (16, [(4, 10)], False),                         # A1 B1 C#2 D2, sliding up the E string
                               (4, [(2, 2)], False), (4, [(2, 2)], True), (4, [], False)])   # E2 tied on, rest
     drums = track(2, "Drumkit", [0] * 6, 9, 0, drums=True)
     groove = [(8, [(1, 42)], False), (8, [(1, 42)], False), (8, [(1, 42), (2, 38)], False), (8, [(1, 42)], False)] * 2
@@ -285,8 +304,13 @@ def gp_song(first_bar_beats=4, dead_slap=False, repeat_count=None):
     put(drums.measures[3], 1, [(1, [(1, 36)], False)])
     guitar = track(3, "吉他", [64, 59, 55, 50, 45, 40], 2, 27, mute=True)
     put(guitar.measures[0], 0, [(4, [(1, 0)], False)] * first_bar_beats)
-    for m in guitar.measures[1:]:
+    for m in guitar.measures[1:3]:
         put(m, 0, [(4, [(1, 0)], False)] * 4)
+    put(guitar.measures[3], 0, [(4, [(6, 0), (5, 2), (4, 2), (3, 1), (2, 0), (1, 0)], False,   # E2 B2 E3 G#3 B3 E4
+                                 gp.BeatStroke(gp.BeatStrokeDirection.down, 8)),            # strummed down
+                                (4, [(4, 2), (3, 1), (2, 0), (1, 0)], False, "dead",        # a dead strum, up
+                                 gp.BeatStroke(gp.BeatStrokeDirection.up, 8)),
+                                (4, [(1, 0)], False), (4, [(1, 0)], False)])
 
     buf = io.BytesIO()
     gp.write(song, buf, version=(5, 1, 0), encoding="utf-8")
@@ -295,14 +319,15 @@ def gp_song(first_bar_beats=4, dead_slap=False, repeat_count=None):
         def edit(gpif):
             if first_bar_beats < 4:
                 gpif = gpif.replace("<MasterTrack>", "<MasterTrack><Anacrusis />", 1)
-            if dead_slap:
+            if dead_slap:                                # the slap as the score's only dead thing
                 gpif = gpif.replace("<Beat id=\"0\">", "<Beat id=\"0\"><DeadSlapped />", 1)
+                gpif = gpif.replace('<Property name="Muted"><Enable/></Property>', "")
             if repeat_count:
                 gpif = gpif.replace('end="true" count="2"', f'end="true" count="{repeat_count}"', 1)
             return gpif
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             data = gp7.rezip([(i, z.read(i)) for i in z.infolist()], edit)
-    played = {"Electric Bass": [], "Drumkit": [], "吉他": []}
+    played = {"Electric Bass": [], "Drumkit": [], "吉他": [], "吉他 dead": []}   # the last: dead strums' beats
     start = 0
     for bar, at in enumerate([0, 1, 2, 1, 2, 3]):                    # bars as played: 1 2 3 2 3 4
         length = first_bar_beats if bar == 0 else 4
@@ -316,7 +341,14 @@ def gp_song(first_bar_beats=4, dead_slap=False, repeat_count=None):
                                         (start + 1, 40)]
             played["Drumkit"] += [(start, 49), (start, 46), (start + 0.5, 51), (start + 1, 56), (start + 1.5, 81),
                                   (start + 3, 38), (start + 3.125, 38), (start, 36)]
-        played["吉他"] += [(start + i, 64) for i in range(length)]
+        if at < 3:
+            played["吉他"] += [(start + i, 64) for i in range(length)]
+        else:
+            played["吉他"] += [(start, p) for p in (40, 47, 52, 56, 59, 64)] + [(start + 2, 64), (start + 3, 64)]
+            if dead_slap:                                # its dead strum is a plain strum then
+                played["吉他"] += [(start + 1, p) for p in (52, 56, 59, 64)]
+            else:
+                played["吉他 dead"] += [start + 1]
         start += length
     return data, played
 
@@ -367,17 +399,43 @@ def check_gp():
     expect([t["kind"] for t in info["tracks"]] == ["bass", "drums", "guitar"]
            and [t["default"] for t in info["tracks"]] == [True, True, False]
            and [t["muted"] for t in info["tracks"]] == [False, False, True]
-           and [t["notes"] for t in info["tracks"]] == [len(played[k]) for k in ("Electric Bass", "Drumkit", "吉他")],
+           and [t["notes"] for t in info["tracks"]] == [len(played[k]) for k in ("Electric Bass", "Drumkit", "吉他")]
+           and [t["dead"] for t in info["tracks"]] == [0, 0, len(played["吉他 dead"])],   # hits, not strings
            f"gp --list --json: {info}")
 
     _, notes_all, layers_all = convert(src, folder / "all.nbs", "--tracks", "all", label="gp --tracks all")
     guitar_layer = next((i for i, l in enumerate(layers_all) if l[0] == "Guitar 3"), None)
     expect(guitar_layer is not None and {n[2] for n in notes_all if n[1] == guitar_layer} == {GUITAR},
            f"gp --tracks all: no Guitar 3 layer on the Guitar: {[l[0] for l in layers_all]}")
+    # the guitar at 4 ticks per beat (alone, its quarters would take 5 = 120 BPM): the strum's six strings on one
+    # tick (Guitar Pro 5's 8th stroke, which alphaTab spreads over a 16th: the last three strings would round onto
+    # the next tick), the dead strum (strummed up) as one side-stick click on a layer of its own
+    want_guitar = {(tick_of(b, 4), GUITAR, guitar_key(p)) for b, p in played["吉他"]}
+    want_guitar |= {(tick_of(b, 4), *DEAD_CLICK) for b in played["吉他 dead"]}
     for spec in ("3", "guitar", "吉他"):
-        _, n1, l1 = convert(src, folder / "one.nbs", "--tracks", spec, label=f"gp --tracks {spec}")
-        expect({n[2] for n in n1} == {GUITAR} and len(n1) == len(played["吉他"]) and l1[:1] and l1[0][0] == "Guitar 3",
-               f"gp --tracks {spec}: {len(n1)} notes, layers {[l[0] for l in l1]}")
+        _, n1, l1 = convert(src, folder / "one.nbs", "--tracks", spec, "--ticks-per-beat", "4",
+                            label=f"gp --tracks {spec}")
+        got1 = {(n[0], n[2], n[3]) for n in n1}
+        clicks = sorted((n[0], n[2], n[3]) for n in n1 if l1[n[1]][0] == "Guitar 3: Dead notes")
+        expect(got1 == want_guitar and len(n1) == len(want_guitar) and l1[:1] and l1[0][0] == "Guitar 3"
+               and clicks == sorted(t for t in want_guitar if t[1:] == DEAD_CLICK),
+               f"gp --tracks {spec}: missing {sorted(want_guitar - got1)[:8]}, "
+               f"extra {sorted(got1 - want_guitar)[:8]}, clicks {clicks}, layers {[l[0] for l in l1]}")
+
+    def arpeggio(gpif):                                    # the strummed chord as an arpeggio of the same length
+        brush = '<Properties><Property name="Brush"><Direction>Down</Direction></Property></Properties>'
+        expect(gpif.count(brush) == 1, "gp arpeggio: the strum is not in the score as the test expects")
+        return gpif.replace(brush, "<Arpeggio>Down</Arpeggio>")
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        (folder / "arpeggio.gp").write_bytes(gp7.rezip([(i, z.read(i)) for i in z.infolist()], arpeggio))
+    _, na, _ = convert(folder / "arpeggio.gp", folder / "arpeggio.nbs", "--tracks", "3", "--ticks-per-beat", "4",
+                       label="gp arpeggio")
+    chord = tick_of(next(b for b, p in played["吉他"] if p == 40), 4)   # an arpeggio keeps its spread:
+    late = {(chord, GUITAR, guitar_key(p)) for p in (56, 59, 64)}       # G#3 B3 E4 on the next tick
+    want_arpeggio = (want_guitar - late) | {(tick + 1, sound, key) for tick, sound, key in late}
+    got_arpeggio = {(n[0], n[2], n[3]) for n in na}
+    expect(got_arpeggio == want_arpeggio, f"gp arpeggio: missing {sorted(want_arpeggio - got_arpeggio)}, "
+                                          f"extra {sorted(got_arpeggio - want_arpeggio)}")
     for spec in ("Electric Bass=didgeridoo", "electric bass=didgeridoo", "1=didgeridoo", "bass=didgeridoo"):
         _, nd, _ = convert(src, folder / "didg.nbs", "--instrument", spec, label=f"gp --instrument {spec}")
         expect({n[2] for n in nd if n[1] == 0} == {DIDGERIDOO}, f"gp --instrument {spec}: the bass is not on the Didgeridoo")
@@ -599,9 +657,14 @@ def check_gp_edges():
     data, played = gp_song(dead_slap=True)
     src = folder / "dead slap.gp"
     src.write_bytes(data)
-    _, got, _ = convert(src, folder / "dead slap.nbs", label="dead slap")
+    _, got, layers = convert(src, folder / "dead slap.nbs", label="dead slap")
     at_zero = sorted(n[3] for n in got if n[2] == DOUBLE_BASS and n[0] == 0)
-    expect(at_zero == [], f"dead slap: bass keys {at_zero} at tick 0 (want none: the slapped beat is silent)")
+    expect(at_zero == [], f"dead slap: bass keys {at_zero} at tick 0 (want none: the slapped beat has no pitch)")
+    clicks = [(n[0], n[2], n[3]) for n in got if layers[n[1]][0] == "Electric Bass: Dead notes"]
+    expect(clicks == [(0, *DEAD_CLICK)], f"dead slap: {clicks} on the dead notes layer (want one side-stick click "
+                                         "at tick 0, not one per open string)")
+    hits = [t["dead"] for t in json.loads(run(src, "--list", "--json").stdout)["tracks"]]
+    expect(hits == [1, 0, 0], f"dead slap: --list counts dead hits {hits} (want [1, 0, 0]: one, not one per string)")
     expect(sum(n[2] == DOUBLE_BASS for n in got) == len(played["Electric Bass"]) - 1,
            "dead slap: other bass notes missing or added")
 

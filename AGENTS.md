@@ -47,17 +47,22 @@ and keep changes small and focused.
 - `minecraft/` (experimental, bilingual minecraft/README.md): `export_nbs.py` turns a Guitar Pro file (.gp/.gpx/
   .gp3-5, through `gp7.to_midi`: alphaTab's own MIDI, repeats expanded, every voice) or a MIDI file or song folder
   into an Open Note Block Studio `.nbs` (pynbs 1.1.0, format v5; written to the git-ignored `minecraft/output_nbs/`
-  unless --out), by default the bass and drums; the user exports
-  the structure from Note Block Studio. Details that matter: 10 ticks/s with a whole number of ticks per beat
+  unless --out), by default the bass and drums; the user exports the structure from Note Block Studio. Details
+  that matter: 10 ticks/s with a whole number of ticks per beat
   (grid choice only among 16th grids for unquantised MIDI), notes rounded to the nearest tick (transcribed drums
   sit ~10 ms early) in whole ticks (a float tick of -1 corrupts the file), every key folded into 33-57, notes
   sorted by (tick, layer) with no duplicates (pynbs does not check), full velocity unless --velocities (the
   structure export ignores it), sand (Snare Drum) layers last so they fill the structure's lowest level,
   ASCII-only names (pynbs writes cp1252 and Note Block Studio one byte per character), drum and program maps from
   Note Block Studio / u3002 (MIT, notice above the tables). `gp7.to_midi` takes files from anywhere: it refuses a
-  .gp/.gpx unpacking to more than 64 MB, plays a repeat at most 8 times, caps V8 at 1 GB, and silences dead
-  slaps; `export_nbs.py` refuses more than 8 MB of MIDI. The workbench's "Minecraft note blocks" card POSTs the raw file to /api/nbs
-  (list=1 for the tracks), which runs `export_nbs.py` in a temp folder and streams the .nbs; nothing is stored.
+  .gp/.gpx unpacking to more than 64 MB, plays a repeat at most 8 times, caps V8 at 1 GB, strikes the target of a
+  legato slide (alphaTab's player only bends to it; note blocks cannot bend, and export_nbs ignores pitch bends),
+  starts a strum's strings together (alphaTab's spread could put the last strings a tick or more late; arpeggios
+  keep it), and moves the dead notes (x) and dead slaps of pitched tracks into a second MIDI (`info["dead"]`, the
+  score loaded again), which export_nbs plays as the drum map's side-stick click on a "<track>: Dead notes" layer
+  and counts as hits (one per strum or slap); `export_nbs.py` refuses more than 8 MB of MIDI. The workbench's "Minecraft
+  note blocks" card POSTs the raw file to /api/nbs (list=1 for the tracks), which runs `export_nbs.py` in a temp
+  folder and streams the .nbs; nothing is stored.
 
 ## Rules
 - Stems are read-only for every step after the split; analysis, MIDI and Guitar Pro never change stem audio

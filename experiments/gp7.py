@@ -20,7 +20,7 @@ hold that key (fix_drums); and the score's layout fields are written as Guitar P
 
     gp_bytes = to_gp(gp5_bytes, audio=mp3_bytes, sync=[(0, 0.0), (1, 1000.0), ...])   # (bar index, ms)
     dump(gp_bytes)      # what alphaTab reads back: title, bars, audio, and every beat and note of every track
-    midi, info = to_midi(gp_bytes)   # alphaTab's own player MIDI of a Guitar Pro file (minecraft/export_nbs.py)
+    midi, info = to_midi(gp_bytes)   # alphaTab's player MIDI of a Guitar Pro file, for note blocks (export_nbs.py)
 """
 import hashlib
 import io
@@ -138,36 +138,71 @@ globalThis.openmusic = {
       }),
     });
   },
-  toMidi(hex) {
-    // alphaTab's own player MIDI: bars in playing order (repeats, endings), every voice, tied notes once;
-    // one MIDI track per score track (tempo and time signatures on track 0), 960 ticks per quarter
+  // the score made ready for note blocks (see gp7.to_midi): {score, dead: how many dead notes and dead slaps it
+  // has}; with deadOnly, the dead notes and dead slaps are all it keeps, otherwise they are what it leaves out
+  forBlocks(hex, deadOnly) {
     const score = openmusic.load(hex);
     // a repeat count is just a number in the file, and alphaTab plays every repetition: keep it to 8 plays
     for (const bar of score.masterBars) if (bar.repeatCount > 8) bar.repeatCount = 8;
-    // a dead-slapped beat has no pitch; alphaTab plays it as a 64th on every open string, so it stays silent
+    const Slide = alphaTab.model.SlideOutType, Brush = alphaTab.model.BrushType;
+    let dead = 0;
     for (const track of score.tracks)
       for (const staff of track.staves)
         for (const bar of staff.bars)
           for (const voice of bar.voices)
-            for (const beat of voice.beats)
-              if (beat.deadSlapped) {
-                beat.deadSlapped = false;
-                while (beat.notes.length) beat.removeNote(beat.notes[0]);
+            for (const beat of voice.beats) {
+              // alphaTab plays the target of a legato slide by bending the note it slides from up or down to it,
+              // not by striking it (unless the target has a trill, tremolo or ornament), and a note block cannot
+              // bend: as a shift slide's target it is struck, and a tremolo, trill or ornament on the note it
+              // slides from now ends there instead of running on at that note's pitch
+              for (const note of beat.notes) if (note.slideOutType === Slide.Legato) note.slideOutType = Slide.Shift;
+              // alphaTab starts each string of a strum a little after the one before, the last as late as the
+              // strum's brushDuration (mostly a few hundredths of a second; a .gp5's slowest stroke is an 8th), and
+              // a note block tick is 0.1 s: so that the last strings do not land a tick or more after the chord, a
+              // strum's strings start together (an arpeggio keeps its spread)
+              if (beat.brushType === Brush.BrushUp || beat.brushType === Brush.BrushDown) beat.brushDuration = 0;
+              if (staff.isPercussion) {                  // a drum kit: every hit is a drum, in the main MIDI
+                if (deadOnly) while (beat.notes.length) beat.removeNote(beat.notes[0]);
+                continue;
               }
-    const first = score.masterBars[0];
+              // dead notes (x) and dead slaps have no pitch: alphaTab plays a dead note at its fret's pitch and a
+              // dead slap as a 64th on every open string (never the beat's notes), and export_nbs plays them as a
+              // click, from a MIDI of their own
+              if (beat.deadSlapped) {
+                dead++;
+                while (beat.notes.length) beat.removeNote(beat.notes[0]);
+                if (!deadOnly) beat.deadSlapped = false;
+                continue;
+              }
+              dead += beat.notes.filter(n => n.isDead).length;
+              for (const note of beat.notes.slice()) if (note.isDead !== deadOnly) beat.removeNote(note);
+            }
+    return {score, dead};
+  },
+  midiOf(score) {
     const midi = new alphaTab.midi.MidiFile();
     midi.format = alphaTab.midi.MidiFileFormat.MultiTrack;
     const handler = new alphaTab.midi.AlphaSynthMidiFileHandler(midi, true);
     new alphaTab.midi.MidiFileGenerator(score, new alphaTab.Settings(), handler).generate();
-    return JSON.stringify({
-      midi: openmusic.hex(midi.toBinary()), title: score.title, artist: score.artist,
+    return openmusic.hex(midi.toBinary());
+  },
+  toMidi(hex) {
+    // alphaTab's player MIDI of the score as forBlocks left it: bars in playing order (repeats, endings), every
+    // voice, tied notes once; one MIDI track per score track (tempo and time signatures on track 0), 960 ticks
+    // per quarter
+    let {score, dead} = openmusic.forBlocks(hex, false);
+    const out = {
+      midi: openmusic.midiOf(score), title: score.title, artist: score.artist,
       // an anacrusis (pickup) bar gets no time signature of its own in the MIDI: its length in quarters
-      pickup: first && first.isAnacrusis ? first.calculateDuration() / 960 : 0,
+      pickup: (bar => bar && bar.isAnacrusis ? bar.calculateDuration() / 960 : 0)(score.masterBars[0]),
       tracks: score.tracks.map(track => ({
         name: track.name, percussion: track.staves.some(s => s.isPercussion), mute: track.playbackInfo.isMute,
         program: track.playbackInfo.program,
         channels: [track.playbackInfo.primaryChannel, track.playbackInfo.secondaryChannel]})),
-    });
+    };
+    score = null;                                        // V8 may collect it before the second load
+    out.dead = dead ? openmusic.midiOf(openmusic.forBlocks(hex, true).score) : null;
+    return JSON.stringify(out);
   },
 };
 """
@@ -330,9 +365,16 @@ def to_midi(data):
     """(MIDI bytes, info) of a Guitar Pro file (.gp; also .gpx and .gp3-.gp5, which alphaTab reads as well) as
     alphaTab plays it: a type-1 MIDI file with one track per score track (the score's track i is MIDI track i;
     tempo and time signatures on track 0), bars in playing order (repeats and endings, each repeat played at
-    most 8 times), every voice, a tied note once, drums as General MIDI keys on channel 10, dead-slapped beats
-    silent. info = {title, artist, pickup (the length in quarters of an anacrusis first bar, or 0), tracks:
-    [{name, percussion, mute, program, channels: [primary, secondary]}]}. For minecraft/export_nbs.py, which gets
+    most 8 times), every voice, a tied note once, drums as General MIDI keys on channel 10. Made for note blocks,
+    it differs from alphaTab's player in three ways: the target of a legato slide is struck (a note block cannot
+    bend to it); a strum's strings start together (an arpeggio keeps its spread, but one that mixes dead notes
+    with pitched ones spreads each kind on its own, as each MIDI holds only its own notes); and the dead notes (x)
+    and dead slaps of pitched tracks, which have no pitch, are left out, into info["dead"]. info = {title, artist,
+    pickup (the length in quarters of an anacrusis first bar, or 0), dead (MIDI bytes like the main ones that hold
+    only the dead notes and dead slaps, as alphaTab plays them: a dead note at its fret's pitch, a dead slap on
+    every open string; None when there are none), tracks: [{name, percussion, mute, program, channels: [primary,
+    secondary]}]}. A score with dead notes or dead slaps is loaded a second time for info["dead"], after the first
+    is let go. For minecraft/export_nbs.py, which gets
     files from anywhere: a .gp (a zip) whose files would unpack to more than MAX_UNPACKED is refused before
     anything is unpacked, each file is read up to its declared size only, its audio track is not read at all, and
     alphaTab gets the zip rebuilt from those bytes (alphaTab itself unpacks whatever a file holds, whatever size
@@ -351,6 +393,7 @@ def to_midi(data):
         out = json.loads(ctx.call("openmusic.toMidi", data.hex(), timeout_sec=120, max_memory=MAX_V8))
     finally:
         ctx.set_hard_memory_limit(0)       # the engine is shared: no limit for to_gp / dump
+    out["dead"] = bytes.fromhex(out["dead"]) if out["dead"] else None
     return bytes.fromhex(out.pop("midi")), out
 
 

@@ -8,10 +8,11 @@
 The input is a Guitar Pro file (.gp from Guitar Pro 7/8; also .gpx and .gp3-.gp5), a MIDI file, or an OpenMusic
 song folder (its transcription/<stem>.mid files). A Guitar Pro file goes through alphaTab (vendored for
 export_gp.py; experiments/gp7.py), which turns it into MIDI as Guitar Pro plays it: every voice, repeats and
-endings in playing order, a tied note once (a dead-slapped beat stays silent, as it has no pitch). So the way to a
-clean result is to fix a transcription in Guitar Pro 8 and convert the saved file. By default the bass and the
-drums are converted (what OpenMusic transcribes best); --tracks names others: bass, drums, guitar, piano, melody,
-all, or track numbers / names as --list shows them (a number always means the --list number).
+endings in playing order, a tied note once (dead notes and dead slaps, which have no pitch, come out apart: see
+Sound). So the way to a clean result is to fix a transcription in Guitar Pro 8 and convert the saved file. By
+default the bass and the drums are converted (what OpenMusic transcribes best); --tracks names others: bass,
+drums, guitar, piano, melody, all, or track numbers / names as --list shows them (a number always means the --list
+number).
 
 Minecraft shapes the result:
 - Time: redstone moves in steps of 0.1 s, so the song plays at 10 ticks per second (Note Block Studio's
@@ -20,10 +21,15 @@ Minecraft shapes the result:
   --ticks-per-beat chooses; by default it is the number that changes the tempo least without moving notes off
   their rhythm (a note more than 0.2 ticks from every tick counts as moved, and OFF_RHYTHM weighs that against
   the tempo change). Notes go to the nearest tick (OpenMusic's drum hits sit about 10 ms early, so cutting
-  down would move most of them a whole 16th early). Tempo changes inside a song are not kept: it plays at one
-  tempo, and its bars stay bars because every beat gets the same number of ticks.
+  down would move most of them a whole 16th early). A strum's strings start together (gp7.to_midi: alphaTab
+  spreads them over the strum's length, so the last ones could land a tick or more late). Tempo changes inside a
+  song are not kept: it plays at one tempo, and its bars stay bars because every beat gets the same number of
+  ticks.
 - Pitch: a note block instrument covers two octaves (the Piano F#3-F#5, the Double Bass two octaves lower, ...).
   Notes outside go up or down whole octaves into range, so Note Block Studio's export leaves none of them out.
+  A note block strikes one fixed pitch: a slide's target is struck (gp7.to_midi strikes a legato slide's too,
+  which alphaTab only bends to), and pitch bends are ignored, so bends, the whammy bar and vibrato are not heard
+  and a bent note keeps the pitch of its fret (a pre-bend too).
 - Sound: a part plays on the instrument Open Note Block Studio's MIDI import gives its General MIDI program
   (PROGRAMS: a bass on the Double Bass, wood under the note block; a clean guitar on the Guitar, wool; a voice
   on the Flute, clay; a piano on the Piano), unless another of CHOICES holds BETTER_FIT more of its notes in its
@@ -31,7 +37,10 @@ Minecraft shapes the result:
   the pitch of Note Block Studio 3.12's drum map (DRUMS): kick and toms on the Bass Drum (stone), closed and
   pedal hi-hats on the Click (glass), the open hi-hat, snare and cymbals on the Snare Drum (sand), the ride bell
   on the Bell, the cowbell on the Cow Bell. --instrument TRACK=NAME sets a pitched part's instrument (NAME as in
-  INSTRUMENTS; TRACK as for --tracks, and it must be one of the converted tracks).
+  INSTRUMENTS; TRACK as for --tracks, and it must be one of the converted tracks). A Guitar Pro track's dead
+  notes (x) and dead slaps have no pitch, so they play as the drum map's side stick (DEAD: a Click at 41, a dry
+  click below the hi-hat's 54), one click per strum, on a layer of the track's own; --list and the report count
+  them as hits (a dead strum or a dead slap is one hit, however many strings it has).
 - Loudness: note blocks have none, and Note Block Studio's structure export ignores velocities. So every note
   is written at full velocity and Note Block Studio plays the song as the structure will; --velocities keeps
   the score's (for Note Block Studio itself or a data pack).
@@ -161,6 +170,15 @@ DRUMS = {
     86: ("Mute Surdo", "basedrum", 45), 87: ("Open Surdo", "basedrum", 40), 88: ("Applause", "snare", 43),
 }
 OTHER_DRUM = ("Percussion", "hat", 45)
+# A dead note (x) or a dead slap of a pitched track has no pitch: it plays as the drum map's side stick (37), a dry
+# click below the hi-hat, on a layer of the track's own
+DEAD = ("Dead notes", *DRUMS[37][1:])
+
+
+def dead_hits(part):
+    """How many dead hits a part has: its dead notes' onsets, so that a dead strum, or a dead slap (which alphaTab
+    plays on every open string), counts once."""
+    return len({beat for beat, _, _ in part.get("dead", ())})
 KIND_NAMES = {"bass": "Bass", "drums": "Drums", "guitar": "Guitar", "piano": "Piano", "melody": "Melody"}
 
 
@@ -250,8 +268,9 @@ def kind_of(channel, program):
 
 def load(path):
     """(song, parts): song = {title, artist, tempos, signatures, source}; parts in score order, each
-    {number (1-based, as --list shows), name, kind, program, notes, muted}. A part is a Guitar Pro track, a MIDI
-    track and channel, or an OpenMusic stem."""
+    {number (1-based, as --list shows), name, kind, program, notes, muted}, and for a Guitar Pro track also dead
+    (its dead notes and dead slaps as alphaTab plays them, (beat, pitch, velocity) like notes: a dead slap is one
+    per open string). A part is a Guitar Pro track, a MIDI track and channel, or an OpenMusic stem."""
     song, parts = read_input(Path(path))
     for i, p in enumerate(parts, 1):
         p["number"] = i
@@ -287,21 +306,24 @@ def read_input(path):
             reason = re.sub(r"^<anonymous>:\d+: ", "", (str(e).strip().splitlines() or [type(e).__name__])[0])
             raise SystemExit(f"export_nbs.py: {path.name}: not a Guitar Pro file alphaTab can read ({reason[:300]})")
         found, tempos, signatures = read_midi(midi)
+        dead = read_midi(info["dead"])[0] if info["dead"] else {}   # dead notes and dead slaps: a MIDI of their own
         pickup = info.get("pickup") or 0   # Guitar Pro's anacrusis bar: alphaTab writes no time signature for it
         if signatures and 0 < pickup < signatures[0][1] * 4 / signatures[0][2] - 1e-9 and \
                 not any(abs(at - pickup) < 1e-9 for at, _, _ in signatures):
             signatures = sorted(signatures + [(pickup, signatures[0][1], signatures[0][2])])
         tracks, merged = info["tracks"], {}
-        for (index, channel), part in sorted(found.items()):
-            if index >= len(tracks):
-                continue
-            t = tracks[index]                            # MIDI track i is the score's track i, on 1 or 2 channels
-            program = min(max(int(t["program"] or 0), 0), 127)    # a drum track says -1
-            entry = merged.setdefault(index, {"name": t["name"], "program": program, "notes": [],
-                                              "kind": "drums" if t["percussion"] else kind_of(channel, program),
-                                              "muted": t["mute"]})
-            entry["notes"] += part["notes"]
-        parts = [dict(merged[i], notes=sorted(merged[i]["notes"])) for i in sorted(merged)]
+        for key, midi_parts in (("notes", found), ("dead", dead)):
+            for (index, channel), part in sorted(midi_parts.items()):
+                if index >= len(tracks):
+                    continue
+                t = tracks[index]                        # MIDI track i is the score's track i, on 1 or 2 channels
+                program = min(max(int(t["program"] or 0), 0), 127)    # a drum track says -1
+                entry = merged.setdefault(index, {"name": t["name"], "program": program, "notes": [], "dead": [],
+                                                  "kind": "drums" if t["percussion"] else kind_of(channel, program),
+                                                  "muted": t["mute"]})
+                entry[key] += part["notes"]
+        parts = [dict(merged[i], notes=sorted(merged[i]["notes"]), dead=sorted(merged[i]["dead"]))
+                 for i in sorted(merged)]
         return {"title": info["title"] or path.stem, "artist": info["artist"], "tempos": tempos,
                 "signatures": signatures, "source": path.name}, parts
     if score_type(data) != "midi":
@@ -464,9 +486,11 @@ def arrange(parts, offset, tpb, instruments):
     for part in parts:
         name = layer_name(part, part["number"])
         slots, moved = defaultdict(dict), 0
-        for beat, pitch, velocity in part["notes"]:
+        for beat, pitch, velocity in part["notes"] + [(beat, None, v) for beat, _, v in part.get("dead", ())]:
             tick = math.floor(beat * tpb + 0.5) - offset
-            if part["kind"] == "drums":
+            if pitch is None:                            # a dead note or dead slap: a click on a layer of its own
+                piece, sound, key = DEAD
+            elif part["kind"] == "drums":
                 piece, sound, key = DRUMS.get(pitch, OTHER_DRUM)
                 key = fold(key)
             else:
@@ -478,7 +502,7 @@ def arrange(parts, offset, tpb, instruments):
         order = sorted(slots, key=lambda p: min(DRUMS_ORDER.get(p, 99), 99))
         for piece in order:
             groups.append((f"{name}: {piece}" if piece else name, slots[piece]))
-        stats.append({"part": part, "name": name, "notes": len(part["notes"]),
+        stats.append({"part": part, "name": name, "notes": len(part["notes"]), "dead": dead_hits(part),
                       "written": sum(len(s) for s in slots.values()), "octave_moved": moved,
                       "pieces": [(p, sorted({(s, k) for (_, s, k) in slots[p]})) for p in order]})
     return groups, stats
@@ -516,7 +540,7 @@ def build(song, parts, tpb=None, instruments=None, velocities=False):
     layer, layers: [names], tpb, options, bpm, start, length, time_signature, stats, instruments}. instruments:
     {part number: instrument} for pitched parts (the rest are picked); velocities: keep the score's instead of
     100 for every note."""
-    notes = [n for p in parts for n in p["notes"]]
+    notes = [n for p in parts for n in p["notes"] + p.get("dead", [])]   # a dead note's click keeps time too
     if not notes:
         raise SystemExit("export_nbs.py: the chosen tracks have no notes")
     beats = [n[0] for n in notes]
@@ -586,8 +610,9 @@ def write(data, path):
 
 
 def sound_names(stat, instruments):
-    if stat["part"]["kind"] != "drums":
-        return INSTRUMENTS[instruments[stat["part"]["number"]]][1]
+    if stat["part"]["kind"] != "drums":                  # a track of dead notes only plays no pitched instrument
+        names = [INSTRUMENTS[instruments[stat["part"]["number"]]][1]] if stat["notes"] else []
+        return " / ".join(names + ([INSTRUMENTS[DEAD[1]][1]] if stat["dead"] else []))
     names = []
     for _, sounds in stat["pieces"]:
         for sound, _ in sounds:
@@ -621,8 +646,11 @@ def report(song, result, path):
         else:
             name = result["instruments"][p["number"]]
             what = (f"{INSTRUMENTS[name][1]} ({INSTRUMENTS[name][2]} under the note block), "
-                    f"{s['octave_moved']} notes moved by octaves into its range")
-        print(f"  {s['name']} [{p['kind']}]: {s['notes']} notes -> {s['written']} note blocks; {what}")
+                    f"{s['octave_moved']} notes moved by octaves into its range") if s["notes"] else ""
+        if s["dead"]:
+            what += ("; " if what else "") + f"dead notes = {INSTRUMENTS[DEAD[1]][1]} {DEAD[2]} (a side stick's click)"
+        notes = f"{s['notes']} notes" + (f" and {s['dead']} dead-note hits" if s["dead"] else "")
+        print(f"  {s['name']} [{p['kind']}]: {notes} -> {s['written']} note blocks; {what}")
     seconds = result["length"] / TICKS_PER_SECOND
     poly = max(Counter(n[0] for n in result["notes"]).values())
     print(f"  {len(result['notes'])} note blocks, {result['length']} ticks ({int(seconds // 60)}:{seconds % 60:04.1f} "
@@ -634,15 +662,17 @@ def track_list(song, parts):
     """The tracks as data (for --list --json and the workbench)."""
     return {"title": song["title"], "artist": song["artist"],
             "tracks": [{"number": p["number"], "name": p["name"], "kind": p["kind"], "program": p["program"],
-                        "notes": len(p["notes"]), "low": min(n[1] for n in p["notes"]),
-                        "high": max(n[1] for n in p["notes"]), "muted": p["muted"],
+                        "notes": len(p["notes"]), "dead": dead_hits(p),
+                        "low": min((n[1] for n in p["notes"]), default=None),
+                        "high": max((n[1] for n in p["notes"]), default=None), "muted": p["muted"],
                         "default": p["kind"] in DEFAULT_KINDS} for p in parts]}
 
 
 def list_tracks(song, parts):
     for t in track_list(song, parts)["tracks"]:
         print(f"{'*' if t['default'] else ' '} {t['number']}. {t['name'] or '(no name)'} [{t['kind']}, program "
-              f"{t['program']}] {t['notes']} notes, pitches {t['low']}-{t['high']}" + (", muted" if t["muted"] else ""))
+              f"{t['program']}] {t['notes']} notes" + (f", pitches {t['low']}-{t['high']}" if t["notes"] else "")
+              + (f", {t['dead']} dead-note hits" if t["dead"] else "") + (", muted" if t["muted"] else ""))
     print("* = converted by default (--tracks picks others)")
 
 
@@ -657,7 +687,8 @@ def summary(song, result):
             "note_blocks": len(result["notes"]), "ticks": result["length"],
             "seconds": round(result["length"] / TICKS_PER_SECOND, 1), "layers": len(result["layers"]),
             "most_at_once": max(Counter(n[0] for n in result["notes"]).values()),
-            "tracks": [{"name": s["name"], "kind": s["part"]["kind"], "notes": s["notes"], "note_blocks": s["written"],
+            "tracks": [{"name": s["name"], "kind": s["part"]["kind"], "notes": s["notes"], "dead": s["dead"],
+                        "note_blocks": s["written"],
                         "instruments": sound_names(s, result["instruments"]).split(" / "),
                         "octave_moved": s["octave_moved"]} for s in result["stats"]]}
 

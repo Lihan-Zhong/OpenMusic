@@ -760,7 +760,7 @@ up_busy:'正在添加：{n} …',up_ok:'已添加：{n}',up_exists:'{n} 已经�
 up_big:'文件太大（上限 400 MB）：{n}',up_name:'文件名不能用：{n}（不能以点、下划线、减号开头，也不能含有 \\ / : * ? " < > |）',up_twin:'songs/ 里已经有同名但格式不同的歌：{n}',up_cut:'上传中断了，请再试一次：{n}',up_err:'保存失败：{n}（文件可能正被别的程序占用）',
 mc_h:'Minecraft 音符盒（试验）',mc_hint:'把 Guitar Pro 谱（可以先在 Guitar Pro 8 里修好）或 MIDI 文件拖进来，勾选音轨，生成 Note Block Studio 的 .nbs 歌曲：用 Note Block Studio 打开试听，再导出成 Minecraft Java 版的结构（步骤见 minecraft/README.md）。默认只转贝斯和鼓。文件不会存进曲库。',
 mc_drop:'把 .gp / .gpx / .gp5 或 .mid 文件拖到这里，或点这里选择',mc_reading:'正在读取 {n} …',mc_pick:'勾选要转的音轨，然后生成。',mc_go:'生成 .nbs',mc_busy:'正在生成…',
-mc_done:'已下载：{name}。速度 {bpm} BPM（原曲 {orig} BPM），{blocks} 个音符盒，约 {time}。',mc_err:'转换失败：{msg}',mc_none:'至少勾一轨。',mc_notes:'{n} 个音',mc_muted:'已静音',mc_big:'文件太大（上限 64 MB）',mc_bad:'不是 Guitar Pro 或 MIDI 文件',
+mc_done:'已下载：{name}。速度 {bpm} BPM（原曲 {orig} BPM），{blocks} 个音符盒，约 {time}。',mc_err:'转换失败：{msg}',mc_none:'至少勾一轨。',mc_notes:'{n} 个音',mc_dead:'{n} 下闷音',mc_muted:'已静音',mc_big:'文件太大（上限 64 MB）',mc_bad:'不是 Guitar Pro 或 MIDI 文件',
 k_bass:'贝斯',k_drums:'鼓',k_guitar:'吉他',k_piano:'钢琴',k_melody:'旋律',
 hw:'这台电脑：{p}，{g}，内存 {r} GB',offline:'连不上工作台了：运行它的终端窗口可能已经关闭。重新运行 python experiments/app.py 后刷新本页。',
 foot:'工作台只在本机运行（127.0.0.1）。它调用的就是 README 里的那几条命令，也可以直接在终端里跑。'},
@@ -785,7 +785,7 @@ up_busy:'Adding {n} …',up_ok:'Added: {n}',up_exists:'{n} is already in songs/.
 up_big:'File too large (max 400 MB): {n}',up_name:'This file name cannot be used: {n} (it must not start with a dot, underscore or hyphen, or contain \\ / : * ? " < > |)',up_twin:'songs/ already has a song with this name in another format: {n}',up_cut:'Upload interrupted, please try again: {n}',up_err:'Could not save {n} (it may be open in another program)',
 mc_h:'Minecraft note blocks (experimental)',mc_hint:'Drop a Guitar Pro file (fix it in Guitar Pro 8 first if you like) or a MIDI file here, tick the tracks, and get a .nbs song for Note Block Studio: open it there to listen, then export it as a Minecraft Java structure (steps in minecraft/README.md). By default only the bass and drums are converted. Nothing is stored in the library.',
 mc_drop:'Drop a .gp / .gpx / .gp5 or .mid file here, or click to choose',mc_reading:'Reading {n} …',mc_pick:'Tick the tracks to convert, then build.',mc_go:'Build .nbs',mc_busy:'Building…',
-mc_done:'Downloaded: {name}. {bpm} BPM (the song: {orig} BPM), {blocks} note blocks, about {time}.',mc_err:'Could not convert it: {msg}',mc_none:'Tick at least one track.',mc_notes:'{n} notes',mc_muted:'muted',mc_big:'File too large (max 64 MB)',mc_bad:'Not a Guitar Pro or MIDI file',
+mc_done:'Downloaded: {name}. {bpm} BPM (the song: {orig} BPM), {blocks} note blocks, about {time}.',mc_err:'Could not convert it: {msg}',mc_none:'Tick at least one track.',mc_notes:'{n} notes',mc_dead:'{n} dead-note hits',mc_muted:'muted',mc_big:'File too large (max 64 MB)',mc_bad:'Not a Guitar Pro or MIDI file',
 k_bass:'bass',k_drums:'drums',k_guitar:'guitar',k_piano:'piano',k_melody:'melody',
 hw:'This computer: {p}, {g}, {r} GB RAM',offline:'Lost contact with the workbench: the terminal running it may have been closed. Start python experiments/app.py again and reload this page.',
 foot:'The workbench runs only on this computer (127.0.0.1). It runs the same commands as the README; you can also run them in a terminal.'}};
@@ -903,7 +903,7 @@ async function mcOpen(f){const st=document.getElementById('mcstatus'),box=docume
  mcFile=f;box.innerHTML='';go.hidden=true;st.textContent=t('mc_reading',{n:f.name});
  try{const r=await mcPost('?list=1',f);if(!r.ok)throw new Error(await mcError(r));const info=await r.json();
   if(mcFile!==f)return;   // another file was dropped meanwhile: its own reply counts
-  box.innerHTML=info.tracks.map(x=>`<label><input type=checkbox value=${+x.number} ${x.default?'checked':''}> ${esc(x.name||'#'+x.number)} <span class=muted>· ${esc(t('k_'+x.kind))} · ${esc(t('mc_notes',{n:x.notes}))}${x.muted?' · '+esc(t('mc_muted')):''}</span></label>`).join('');
+  box.innerHTML=info.tracks.map(x=>`<label><input type=checkbox value=${+x.number} ${x.default?'checked':''}> ${esc(x.name||'#'+x.number)} <span class=muted>· ${esc(t('k_'+x.kind))} · ${esc(t('mc_notes',{n:x.notes}))}${x.dead?' · '+esc(t('mc_dead',{n:x.dead})):''}${x.muted?' · '+esc(t('mc_muted')):''}</span></label>`).join('');
   st.textContent=t('mc_pick');go.hidden=false}
  catch(e){if(mcFile===f)st.textContent=t('mc_err',{msg:e.message||String(e)})}}
 document.getElementById('mcgo').onclick=async()=>{const st=document.getElementById('mcstatus'),go=document.getElementById('mcgo');
